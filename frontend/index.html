@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modeler Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     LANDING PAGE (principal.png)
+══════════════════════════════════════════════════════════ -->
+<div id="landingPage">
+  <div class="landing-bg"></div>
+
+  <!-- Logo Centralizado no Bloco da Esquerda -->
+  <div class="landing-logo">
+    <img src="assets/Logo.svg" alt="Modeler Assistant" />
+    <span class="landing-logo-text">Modeler Assistant</span>
+  </div>
+
+  <!-- Card de Upload no Bloco da Direita -->
+  <div class="landing-upload-card">
+
+    <!-- SPEC -->
+    <div class="upload-section">
+      <p class="upload-label">Arraste o(s) arquivo(s) da SPEC aqui</p>
+      <p class="upload-hint">1 arquivo (SPEC única) ou 2 arquivos (SPEC MERGE + ClaroEmpresas)</p>
+      <div class="upload-controls">
+        <input type="file" id="specFile" accept=".xlsx" multiple style="display:none;" />
+        <button class="btn-upload" onclick="document.getElementById('specFile').click()">Procurar arquivo(s)</button>
+
+        <div class="dropdown-wrapper">
+          <select id="projetoTipoSelect">
+            <option value="true" selected>Alteração de SPEC</option>
+            <option value="false">Transferência Pura</option>
+          </select>
+          <img src="assets/dropdown.svg" class="dropdown-icon" alt="" />
+        </div>
+      </div>
+      <p class="file-loaded-name" id="specNameLabel" style="margin-top:8px; display:none;"></p>
+
+      <div class="upload-controls" style="margin-top:8px;">
+        <input type="text" id="specLinkInput" class="ivr-code-input" placeholder="...ou cole o link do Google Sheets (compartilhado como 'Qualquer pessoa com o link')" />
+        <button class="btn-upload" onclick="usarLinkGoogleSheets()">Usar link</button>
+      </div>
+
+      <input type="text" id="ivrCodeInput" class="ivr-code-input" placeholder="Código IVR (ex: IVR-245422) — opcional" style="margin-top:8px;" />
+    </div>
+
+    <!-- EEP -->
+    <div class="upload-section">
+      <p class="upload-label">Arraste o arquivo do EEP aqui</p>
+      <p class="upload-hint">EEP — Especificação de Escopo do Projeto (PDF, xlsx ou docx)</p>
+      <div class="upload-controls">
+        <input type="file" id="scopeFile" accept=".pdf,.xlsx,.docx" style="display:none;" />
+        <button class="btn-upload" onclick="document.getElementById('scopeFile').click()">Procurar arquivo</button>
+      </div>
+      <p class="file-loaded-name" id="scopeNameLabel" style="margin-top:8px; display:none;"></p>
+    </div>
+
+    <!-- Botão de Ação para gerar a simulação -->
+    <button class="btn-nav btn-nav-blue" id="btnGerar" style="width:100%; margin-top:14px; padding: 10px 20px; font-size:13px;" onclick="dispararModelagemCompleta()">
+      <span id="btnText">Gerar Modelagem</span>
+      <span id="btnSpinner" class="spinner" style="display:none;"></span>
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     APP PAGE (workspace - geral.png)
+══════════════════════════════════════════════════════════ -->
+<div id="appPage">
+
+  <!-- Navbar -->
+  <nav class="app-nav">
+    <div class="nav-logo">
+      <img src="assets/Logo.svg" alt="" />
+      <span>Modeler Assistant</span>
+    </div>
+    <div class="nav-actions">
+      <button class="btn-nav btn-nav-blue" id="btnGerarModelagem" onclick="voltarParaSplash()">
+        Nova Modelagem
+      </button>
+      <button class="btn-nav btn-nav-green" id="btnBaixarPlanilha" onclick="baixarPlanilhaExcelQA()">
+        Exportar xlsx
+      </button>
+    </div>
+  </nav>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar" id="tabBar">
+    <button class="tab-btn active" onclick="switchExcelTab('tabCapa', this)">Geral</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabPlanejamento', this)">Planejamento</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabMassa', this)">Massa de Testes</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabLegenda', this)">Legenda</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabCenarios', this)">Cenários (BDD)</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabRevisao', this)">Revisão Necessária</button>
+  </div>
+
+  <!-- Sheet Wrapper -->
+  <div class="sheet-wrapper">
+
+    <!-- CAPA / GERAL -->
+    <div class="sheet-panel active" id="tabCapa">
+
+      <div class="capa-header">
+        <div class="capa-meta-line"><strong>Projeto / JIRA</strong>: <span id="capaJira">—</span></div>
+        <div class="capa-meta-line"><strong>Total de Casos de Teste Gerados:</strong> <span id="capaTotalCTs">—</span></div>
+        <div class="capa-meta-line"><strong>Chaves Sistêmicas Mineradas:</strong>
+          <span class="capa-keys" id="capaChaves">—</span>
+        </div>
+      </div>
+
+      <hr class="capa-divider" />
+
+      <!-- Audit cards -->
+      <div class="audit-grid" id="capaAuditoria"></div>
+
+      <hr class="capa-divider" />
+
+      <!-- Histórico de alterações -->
+      <h3 class="section-title">Histórico de Alterações</h3>
+      <div class="history-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:240px;">Estado alterado</th>
+              <th>Descrição da alteração</th>
+            </tr>
+          </thead>
+          <tbody id="historicoBody"></tbody>
+        </table>
+      </div>
+
+      <hr class="capa-divider" />
+
+      <!-- BI Marcações -->
+      <h3 class="section-title">ScriptPoints Marcados (Versionamento BI)</h3>
+      <div class="history-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:120px;">ScriptPoint</th>
+              <th>Descrição da Marcação</th>
+              <th style="width:160px;">CT Cobertura</th>
+            </tr>
+          </thead>
+          <tbody id="biMarcacoesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PLANEJAMENTO -->
+    <div class="sheet-panel" id="tabPlanejamento">
+      <h3 class="section-title">Planejamento de Homologação</h3>
+      <div class="plan-grid">
+        <div class="plan-card entrada">
+          <div class="plan-card-label">✅ Critério de Entrada</div>
+          Ambiente de HML disponível, SPEC carregada, chaves de elegibilidade e desvio de DDDs ativas no ambiente.
+        </div>
+        <div class="plan-card falha">
+          <div class="plan-card-label">❌ Critério de Falha</div>
+          VDNs errados acionados em homologação, falta de registro de ScriptPoints obrigatórios ou desvio para fluxo incorreto.
+        </div>
+        <div class="plan-card saida">
+          <div class="plan-card-label">🔵 Critério de Saída</div>
+          Todos os CTs gerados dinamicamente executados e aprovados com evidências de CDR.
+        </div>
+      </div>
+      <div id="planejamentoExtra"></div>
+    </div>
+
+    <!-- MASSA DE TESTES -->
+    <div class="sheet-panel" id="tabMassa">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width:76px;">CT ID</th>
+            <th style="width:76px;">Bloco</th>
+            <th>Descrição (Produto / Segmento / VDN)</th>
+            <th>Perfil / Condição de Entrada</th>
+            <th style="width:180px;">Contrato (Claro)</th>
+            <th style="width:130px;">Avaliação</th>
+            <th>Comentários / Evidências</th>
+          </tr>
+        </thead>
+        <tbody id="massaTableBody"></tbody>
+      </table>
+    </div>
+
+    <!-- LEGENDA -->
+    <div class="sheet-panel" id="tabLegenda">
+      <h3 class="section-title">Blocos da Modelagem</h3>
+      <div id="legendaBlocosContent"></div>
+
+      <h3 class="section-title" style="margin-top:24px;">VDNs de Transferência Extraídos do EEP</h3>
+      <div id="legendaContent"></div>
+    </div>
+
+    <!-- CENÁRIOS (BDD) -->
+    <div class="sheet-panel" id="tabCenarios">
+      <div id="cenariosContainer"></div>
+    </div>
+
+    <!-- REVISÃO NECESSÁRIA -->
+    <div class="sheet-panel" id="tabRevisao">
+      <h3 class="section-title">Itens para Revisão Manual</h3>
+      <p style="font-size:12px; color:#666; margin-bottom:16px;">
+        Itens que o motor não conseguiu classificar com confiança automaticamente — revise antes de enviar ao XRAY.
+      </p>
+      <div id="revisaoContent"></div>
+    </div>
+
+  </div><!-- /sheet-wrapper -->
+</div><!-- /appPage -->
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p class="loading-text" id="loadingText">
+    Lendo o EEP, analisando a SPEC em tempo real e montando o roteiro de testes…
+  </p>
+  <div class="progress-wrap">
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progressBarFill" style="width:0%;"></div>
+    </div>
+    <div class="progress-meta">
+      <span id="progressPercent">0%</span>
+      <span id="progressEta">calculando tempo restante…</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════
+     JAVASCRIPT — lógica 100% preservada e integrada
+══════════════════════════════════════════════════════════ -->
+<script>
+  const API = window.location.origin;
+  let specLoaded  = false;
+  let scopeLoaded = false;
+  let specEmpresasLoaded = false;
+  let cacheModelagem = null;
+  let avaliacoesQA   = {};
+
+  /* ─── helpers ──────────────────────────────────────────── */
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function showLoading(show, msg) {
+    const el = document.getElementById('loadingOverlay');
+    const txt = document.getElementById('loadingText');
+    if (msg) txt.textContent = msg;
+    el.classList.toggle('visible', show);
+    if (!show) atualizarBarraProgresso(0, null);
+  }
+
+  function formatarTempo(segundos) {
+    segundos = Math.max(0, Math.round(segundos));
+    if (segundos < 60) return `~${segundos}s restantes`;
+    const min = Math.floor(segundos / 60);
+    const seg = segundos % 60;
+    return `~${min}min ${seg}s restantes`;
+  }
+
+  function atualizarBarraProgresso(percentual, elapsedSegundos) {
+    const fill = document.getElementById('progressBarFill');
+    const pctLabel = document.getElementById('progressPercent');
+    const etaLabel = document.getElementById('progressEta');
+    if (!fill) return;
+    const pct = Math.max(0, Math.min(100, percentual));
+    fill.style.width = pct + '%';
+    pctLabel.textContent = Math.round(pct) + '%';
+    if (elapsedSegundos === null || pct < 4) {
+      etaLabel.textContent = 'calculando tempo restante…';
+      return;
+    }
+    // ETA honesta: extrapola o tempo total a partir do ritmo real observado
+    // ate agora (nao e um numero inventado, e uma projecao linear simples).
+    const totalEstimado = elapsedSegundos / (pct / 100);
+    const restante = totalEstimado - elapsedSegundos;
+    etaLabel.textContent = pct >= 99.5 ? 'quase lá…' : formatarTempo(restante);
+  }
+
+  /* ─── helper: envia um arquivo e joga erro com a mensagem real do servidor ─── */
+  async function _enviarArquivo(url, formData) {
+    const resp = await fetch(url, { method: "POST", body: formData, credentials: "same-origin" });
+    const res = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      throw new Error((res && (res.detail || res.erro)) || `Erro HTTP ${resp.status} ao enviar o arquivo.`);
+    }
+    return res;
+  }
+
+  /* ─── usar SPEC direto de um link do Google Sheets (publico/com link) ──── */
+  async function usarLinkGoogleSheets() {
+    const input = document.getElementById('specLinkInput');
+    const url = input.value.trim();
+    if (!url) { alert("Cole o link do Google Sheets primeiro."); return; }
+
+    const label = document.getElementById('specNameLabel');
+    try {
+      const resp = await fetch(`${API}/api/upload-spec-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ url }),
+      });
+      const res = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        throw new Error((res && (res.detail || res.erro)) || `Erro HTTP ${resp.status} ao buscar a planilha.`);
+      }
+      specLoaded = true;
+      specEmpresasLoaded = false;
+      label.textContent = `✓ ${res.arquivo} (via Google Sheets)`;
+      label.style.display = 'block';
+      document.getElementById('specFile').value = '';
+    } catch (err) {
+      specLoaded = false;
+      alert("Erro ao buscar do Google Sheets: " + (err && err.message ? err.message : err));
+    }
+  }
+
+  /* ─── upload SPEC (1 arquivo = única, 2 arquivos = MERGE + ClaroEmpresas) */
+  document.getElementById('specFile').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    if (files.length > 2) {
+      alert("Selecione no máximo 2 arquivos de SPEC (MERGE + ClaroEmpresas).");
+      e.target.value = '';
+      return;
+    }
+
+    const label = document.getElementById('specNameLabel');
+    label.textContent = files.length === 2
+      ? `✓ ${files[0].name}  +  ✓ ${files[1].name} (ClaroEmpresas)`
+      : `✓ ${files[0].name}`;
+    label.style.display = 'block';
+
+    try {
+      const formData1 = new FormData();
+      formData1.append('file', files[0]);
+      await _enviarArquivo(`${API}/api/upload-spec`, formData1);
+      specLoaded = true;
+
+      if (files[1]) {
+        const formData2 = new FormData();
+        formData2.append('file', files[1]);
+        await _enviarArquivo(`${API}/api/upload-spec-empresas`, formData2);
+        specEmpresasLoaded = true;
+      } else {
+        specEmpresasLoaded = false;
+      }
+    } catch(err) {
+      specLoaded = false;
+      label.style.display = 'none';
+      alert("Erro ao subir a(s) SPEC(s): " + (err && err.message ? err.message : err));
+    }
+  });
+
+  /* ─── upload EEP ───────────────────────────────────────── */
+  document.getElementById('scopeFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const label = document.getElementById('scopeNameLabel');
+    label.textContent = `✓ ${file.name}`;
+    label.style.display = 'block';
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      await _enviarArquivo(`${API}/api/upload-eep`, formData);
+      scopeLoaded = true;
+    } catch(err) {
+      scopeLoaded = false;
+      label.style.display = 'none';
+      alert("Erro ao subir o EEP: " + (err && err.message ? err.message : err));
+    }
+  });
+
+  /* ─── gerar modelagem (assíncrono, com barra de progresso real) ──── */
+  function _aguardar(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+  async function dispararModelagemCompleta() {
+    if (!specLoaded || !scopeLoaded) {
+      alert("Por favor, selecione e carregue ambos os arquivos (SPEC e EEP).");
+      return;
+    }
+
+    const tipo_a = document.getElementById('projetoTipoSelect').value;
+    const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
+    showLoading(true, "Lendo o EEP, analisando a SPEC em tempo real e montando o roteiro de testes…");
+    atualizarBarraProgresso(0, null);
+
+    try {
+      const respInicio = await fetch(`${API}/api/iniciar-modelagem?tipo_a=${tipo_a}&ivr_code=${ivrCode}`, { method: "POST", credentials: "same-origin" });
+      const resInicio = await respInicio.json().catch(() => null);
+      if (!respInicio.ok) {
+        alert((resInicio && (resInicio.detail || resInicio.erro)) || `Erro HTTP ${respInicio.status} ao iniciar a modelagem.`);
+        return;
+      }
+
+      // Faz o polling do progresso ate o backend sinalizar "concluido"
+      let progresso = null;
+      while (true) {
+        const respProg = await fetch(`${API}/api/progresso`, { credentials: "same-origin" });
+        progresso = await respProg.json().catch(() => null);
+        if (!progresso) { throw new Error("Resposta de progresso inválida."); }
+
+        atualizarBarraProgresso(progresso.percentual, progresso.elapsed);
+        document.getElementById('loadingText').textContent = progresso.etapa || "Processando…";
+
+        if (progresso.concluido) break;
+        await _aguardar(400);
+      }
+
+      if (progresso.erro) { alert(progresso.erro); return; }
+
+      const respResultado = await fetch(`${API}/api/resultado-modelagem`, { credentials: "same-origin" });
+      const res = await respResultado.json().catch(() => null);
+      if (!respResultado.ok) {
+        alert((res && (res.detail || res.erro)) || `Erro HTTP ${respResultado.status} ao obter o resultado.`);
+        return;
+      }
+      if (!res) { alert("O servidor respondeu algo que não é JSON válido."); return; }
+
+      cacheModelagem = res;
+      renderizarWorkspaceQA(res);
+    } catch(err) {
+      alert("Erro ao cruzar as documentações no servidor: " + (err && err.message ? err.message : err));
+    } finally {
+      showLoading(false);
+    }
+  }
+
+  /* ─── switch tabs ──────────────────────────────────────── */
+  function switchExcelTab(tabId, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sheet-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+  }
+
+  function voltarParaSplash() {
+    document.getElementById('appPage').classList.remove('visible');
+    document.getElementById('landingPage').style.display = 'flex';
+  }
+
+  /* ─── exportar xlsx ────────────────────────────────────── */
+  function baixarPlanilhaExcelQA() {
+    const tipo_a = document.getElementById('projetoTipoSelect').value;
+    const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
+    window.location.href = `${API}/api/exportar-testes?tipo_a=${tipo_a}&ivr_code=${ivrCode}`;
+  }
+
+  /* ─── salvar avaliações ────────────────────────────────── */
+  function salvarDadosExecucao(ctId, campo, valor) {
+    if (!avaliacoesQA[ctId]) avaliacoesQA[ctId] = { status: "pendente", comments: "" };
+    avaliacoesQA[ctId][campo] = valor;
+    if (campo === 'status') {
+      const sel = document.getElementById(`eval-${ctId}`);
+      if (sel) sel.className = 'eval-select ' + valor;
+    }
+  }
+
+  /* ─── copiar steps de um CT (sem a coluna Step) p/ colar no Jira ─── */
+  function _tsvSafe(texto) {
+    return String(texto ?? '—').replace(/\r?\n/g, ' | ').trim();
+  }
+
+  function copiarStepsCT(ctId) {
+    if (!cacheModelagem) return;
+    const caso = cacheModelagem.casos_teste.find(c => c.ct_id === ctId);
+    if (!caso) return;
+
+    const linhas = [['Ação (Discar / Condição)', 'Estado', 'Resultado Esperado / Prompt']];
+    caso.steps.forEach(step => {
+      const resultado = step.resultado !== undefined ? step.resultado : step.prompt_texto;
+      const resultadoFinal = (step.prompt_id && step.prompt_id !== '—')
+        ? `ID: ${step.prompt_id} — ${_tsvSafe(resultado)}`
+        : _tsvSafe(resultado);
+      linhas.push([_tsvSafe(step.acao), _tsvSafe(step.estado), resultadoFinal]);
+    });
+    const tsv = linhas.map(cols => cols.join('\t')).join('\n');
+
+    const marcarCopiado = () => {
+      const btn = document.getElementById(`copyBtn-${ctId}`);
+      if (!btn) return;
+      const original = btn.textContent;
+      btn.textContent = '✓ Copiado!';
+      btn.classList.add('copiado');
+      setTimeout(() => { btn.textContent = original; btn.classList.remove('copiado'); }, 1500);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tsv).then(marcarCopiado).catch(() => _copiarViaFallback(tsv, marcarCopiado));
+    } else {
+      _copiarViaFallback(tsv, marcarCopiado);
+    }
+  }
+
+  function _copiarViaFallback(texto, aoSucesso) {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      aoSucesso();
+    } catch (e) {
+      alert('Não foi possível copiar automaticamente. Selecione o texto manualmente.');
+    }
+    document.body.removeChild(ta);
+  }
+
+  /* ─── renderizar workspace ─────────────────────────────── */
+  function renderizarWorkspaceQA(data) {
+    // Esconde a tela de landing e exibe o painel
+    document.getElementById('landingPage').style.display = 'none';
+    document.getElementById('appPage').classList.add('visible');
+
+    // Mostrar botão de exportar
+    document.getElementById('btnBaixarPlanilha').style.display = 'inline-block';
+
+    // ── 1. CAPA ─────────────────────────────────────────────
+    const chaves_unidas = data.chaves_api.length > 0
+      ? data.chaves_api.join(' / ')
+      : 'Nenhuma chave identificada no PDF';
+
+    document.getElementById('capaJira').textContent    = data.jira_ivr;
+    document.getElementById('capaTotalCTs').textContent = `${data.casos_teste.length} CTs funcionais mapeados diretamente`;
+    document.getElementById('capaChaves').textContent   = chaves_unidas;
+
+    // Audit cards
+    const audit = document.getElementById('capaAuditoria');
+    audit.innerHTML = "";
+    data.casos_teste.forEach(caso => {
+      const badge = caso.sp_pendente
+        ? `<span class="badge-pendente">SP Pendente</span>`
+        : `<span class="badge-mapeado">Mapeado</span>`;
+      audit.innerHTML += `
+        <div class="audit-card">
+          <span class="audit-card-name"><strong>${escHtml(caso.ct_id)}</strong> — ${escHtml(caso.estado)}</span>
+          ${badge}
+        </div>`;
+    });
+
+    // BI Marcações
+    const biBody = document.getElementById('biMarcacoesBody');
+    biBody.innerHTML = "";
+    (data.bi_marcacoes || []).forEach(sp => {
+      biBody.innerHTML += `
+        <tr>
+          <td><strong>${escHtml(sp.codigo)}</strong></td>
+          <td>${escHtml(sp.descricao)}</td>
+          <td>${escHtml(sp.ct)}</td>
+        </tr>`;
+    });
+    if (!data.bi_marcacoes || data.bi_marcacoes.length === 0) {
+      biBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#888; font-style:italic; padding:20px;">
+        Nenhum ScriptPoint novo encontrado na aba Versionamento BI.</td></tr>`;
+    }
+
+    // Histórico de alterações
+    const hBody = document.getElementById('historicoBody');
+    hBody.innerHTML = "";
+    if (data.historico_versionamento && data.historico_versionamento.length > 0) {
+      data.historico_versionamento.forEach(v => {
+        hBody.innerHTML += `
+          <tr>
+            <td class="td-state">${escHtml(v.nome)}</td>
+            <td>${escHtml(v.alteracao)}</td>
+          </tr>`;
+      });
+    } else {
+      hBody.innerHTML = `<tr><td colspan="2" style="text-align:center; color:#888; font-style:italic; padding:20px;">
+        Nenhum histórico estruturado (Projeto de Transferência Pura).</td></tr>`;
+    }
+
+    // ── 2. MASSA DE TESTES ───────────────────────────────────
+    const massaBody = document.getElementById('massaTableBody');
+    massaBody.innerHTML = "";
+    data.casos_teste.forEach(caso => {
+      const stateQA = avaliacoesQA[caso.ct_id] || { status: "pendente", comments: "" };
+      massaBody.innerHTML += `
+        <tr>
+          <td><strong>${escHtml(caso.ct_id)}</strong></td>
+          <td>${escHtml(caso.bloco_nome)}</td>
+          <td><strong>Estado: ${escHtml(caso.estado)}</strong></td>
+          <td>${escHtml(caso.perfil)} | Validação de Chave sistêmica</td>
+          <td><input type="text" class="massa-input" placeholder="Cole o MSISDN ou Contrato Claro…" /></td>
+          <td>
+            <select class="eval-select ${stateQA.status}" id="eval-${escHtml(caso.ct_id)}"
+              onchange="salvarDadosExecucao('${escHtml(caso.ct_id)}', 'status', this.value)">
+              <option value="pendente" ${stateQA.status==='pendente'?'selected':''}>Pendente 🟡</option>
+              <option value="ok"       ${stateQA.status==='ok'?'selected':''}>OK 🟢</option>
+              <option value="nok"      ${stateQA.status==='nok'?'selected':''}>Não OK 🔴</option>
+              <option value="blocked"  ${stateQA.status==='blocked'?'selected':''}>Bloqueado ⚠️</option>
+            </select>
+          </td>
+          <td><input type="text" class="massa-input" style="background:#fff; width:100%;"
+            value="${escHtml(stateQA.comments)}" placeholder="Descreva observações de evidência…"
+            oninput="salvarDadosExecucao('${escHtml(caso.ct_id)}', 'comments', this.value)" /></td>
+        </tr>`;
+    });
+
+    // ── 3. LEGENDA ───────────────────────────────────────────
+    let blocosRows = "";
+    (data.legenda || []).forEach(b => {
+      blocosRows += `<tr>
+        <td><strong>${escHtml(b.bloco)}</strong></td>
+        <td>${escHtml(b.titulo)}</td>
+        <td>${escHtml(b.cts)}</td>
+        <td>${escHtml(b.sps)}</td>
+      </tr>`;
+    });
+    document.getElementById('legendaBlocosContent').innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>Bloco</th><th>Título</th><th>CTs</th><th>SPs</th></tr></thead>
+        <tbody>${blocosRows || '<tr><td colspan="4" style="text-align:center;color:#888;">—</td></tr>'}</tbody>
+      </table>`;
+
+    let vdnRows = "";
+    (data.vdns_roteamento || []).forEach((v, idx) => {
+      const labelVdn = typeof v === 'string' ? v : `${v[0]} ➡️ ${v[1]}`;
+      vdnRows += `<tr>
+        <td><strong>Regra ${idx+1}</strong></td>
+        <td>Roteamento de transferência ATH especializado</td>
+        <td>${escHtml(labelVdn)}</td>
+      </tr>`;
+    });
+    document.getElementById('legendaContent').innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>Regra</th><th>Comportamento Esperado</th><th>Destino / VDN</th></tr></thead>
+        <tbody>${vdnRows || '<tr><td colspan="3" style="text-align:center;color:#888;">Nenhuma VDN identificada no EEP.</td></tr>'}</tbody>
+      </table>`;
+
+    // ── 4. CENÁRIOS BDD ──────────────────────────────────────
+    const cenarios = document.getElementById('cenariosContainer');
+    cenarios.innerHTML = "";
+    const CORES_BLOCO = ["#1F4E79","#006B6B","#1E6B32","#B7770D","#5D4E75","#4A5568","#3730A3","#9F1239","#5B6C44"];
+    const CORES_REGRESSIVO = "#7B241C";
+    data.casos_teste.forEach((caso) => {
+      const corHeader = caso.regressivo ? CORES_REGRESSIVO : CORES_BLOCO[(caso.bloco - 1) % CORES_BLOCO.length];
+      const pendenteTag = caso.sp_pendente ? `<span class="badge-pendente" style="margin-left:8px;">SP PENDENTE</span>` : '';
+      let stepsRowsHtml = "";
+      caso.steps.forEach(step => {
+        const resultado = step.resultado !== undefined ? step.resultado : step.prompt_texto;
+        stepsRowsHtml += `
+          <tr>
+            <td>${step.step_num}</td>
+            <td><strong>${escHtml(step.acao)}</strong></td>
+            <td><span class="step-state">${escHtml(step.estado)}</span></td>
+            <td>
+              ${step.prompt_id && step.prompt_id !== '—' ? `<div class="step-prompt-id" style="font-family: monospace; font-size: 11px; font-weight: 700; color: var(--clr-navy); margin-bottom: 4px;">ID: ${escHtml(step.prompt_id)}</div>` : ''}
+              <div class="step-prompt-text" style="font-style: italic; color: #444; line-height: 1.4; white-space: pre-line;">${escHtml(resultado)}</div>
+            </td>
+          </tr>`;
+      });
+
+      cenarios.innerHTML += `
+        <div class="block-header" style="background:${corHeader};">
+          ${escHtml(caso.bloco_nome)} — Estado Mapeado: ${escHtml(caso.estado)}
+        </div>
+        <div class="pre-requisito-row">
+          <strong>PRÉ-REQUISITO:</strong> ${escHtml(caso.pre_requisito)}
+        </div>
+        <div class="bdd-title-row">
+          <div class="bdd-title">
+            ${escHtml(caso.ct_id)}${pendenteTag} — ${escHtml(caso.gherkin)}
+          </div>
+          <button class="btn-copy" id="copyBtn-${escHtml(caso.ct_id)}" onclick="copiarStepsCT('${caso.ct_id}')">📋 Copiar</button>
+        </div>
+        <table class="data-table" style="margin-bottom:8px;">
+          <thead>
+            <tr>
+              <th style="width:60px;">Step</th>
+              <th>Ação (Discar / Condição)</th>
+              <th style="width:200px;">Estado</th>
+              <th>Resultado Esperado / Prompt</th>
+            </tr>
+          </thead>
+          <tbody>${stepsRowsHtml}</tbody>
+        </table>`;
+    });
+
+    // ── 5. REVISÃO NECESSÁRIA ─────────────────────────────────
+    const revisao = document.getElementById('revisaoContent');
+    if (!data.revisao_necessaria || data.revisao_necessaria.length === 0) {
+      revisao.innerHTML = `<p style="color:#1A6B1A; font-weight:600;">Nenhum item pendente — o motor cobriu tudo com confiança.</p>`;
+    } else {
+      let revRows = "";
+      data.revisao_necessaria.forEach(item => {
+        revRows += `<tr>
+          <td>${escHtml(item.tipo)}</td>
+          <td>${escHtml(item.estado || '—')}</td>
+          <td>${escHtml(item.detalhe)}</td>
+        </tr>`;
+      });
+      revisao.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th style="width:180px;">Tipo</th><th style="width:200px;">Estado</th><th>Detalhe</th></tr></thead>
+          <tbody>${revRows}</tbody>
+        </table>`;
+    }
+  }
+</script>
+</body>
+</html>
