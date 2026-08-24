@@ -7,7 +7,7 @@ import datetime
 import threading
 from fastapi import Body, FastAPI, UploadFile, File, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # Injeta a pasta atual no sys.path
@@ -56,6 +56,14 @@ if not _FRONTEND.exists():
 
 if _FRONTEND.exists():
     app.mount("/app", StaticFiles(directory=str(_FRONTEND), html=True), name="frontend")
+
+
+@app.get("/")
+def raiz():
+    # Colegas costumam colar so o dominio base (sem /app/index.html) — sem
+    # esse redirect, isso cai num 404 que parece "site fora do ar" quando na
+    # verdade o servico esta de pe, so o app mora em /app.
+    return RedirectResponse(url="/app/index.html")
 
 
 def _sessao_de(request: Request) -> tuple[sessions.SessaoDados, str, bool]:
