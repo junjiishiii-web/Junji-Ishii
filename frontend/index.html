@@ -334,10 +334,16 @@
       return;
     }
 
+    // O rotulo so mostra "enviando..." ate a confirmacao real do servidor —
+    // marcar como concluido (✓) antes de o upload de fato terminar engana o
+    // usuario num cold start lento (plano gratuito de nuvem): a pessoa ve o
+    // "✓" na hora, clica em "Gerar Modelagem" antes do upload terminar de
+    // verdade, e cai no alerta de "carregue os arquivos" porque specLoaded
+    // ainda esta false naquele instante.
     const label = document.getElementById('specNameLabel');
     label.textContent = files.length === 2
-      ? `✓ ${files[0].name}  +  ✓ ${files[1].name} (ClaroEmpresas)`
-      : `✓ ${files[0].name}`;
+      ? `Enviando ${files[0].name} + ${files[1].name}…`
+      : `Enviando ${files[0].name}…`;
     label.style.display = 'block';
 
     try {
@@ -354,6 +360,9 @@
       } else {
         specEmpresasLoaded = false;
       }
+      label.textContent = files.length === 2
+        ? `✓ ${files[0].name}  +  ✓ ${files[1].name} (ClaroEmpresas)`
+        : `✓ ${files[0].name}`;
     } catch(err) {
       specLoaded = false;
       label.style.display = 'none';
@@ -366,13 +375,14 @@
     const file = e.target.files[0];
     if (!file) return;
     const label = document.getElementById('scopeNameLabel');
-    label.textContent = `✓ ${file.name}`;
+    label.textContent = `Enviando ${file.name}…`;
     label.style.display = 'block';
     const formData = new FormData();
     formData.append('file', file);
     try {
       await _enviarArquivo(`${API}/api/upload-eep`, formData);
       scopeLoaded = true;
+      label.textContent = `✓ ${file.name}`;
     } catch(err) {
       scopeLoaded = false;
       label.style.display = 'none';
