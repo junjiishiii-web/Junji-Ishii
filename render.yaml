@@ -1,12 +1,6 @@
 services:
   - type: web
     name: modeler-assistant
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python backend/servidor.py
-    envVars:
-      - key: MODELER_COOKIE_SECURE
-        value: "true"
-      - key: PYTHON_VERSION
-        value: "3.11.9"
+    dockerfilePath: ./Dockerfile

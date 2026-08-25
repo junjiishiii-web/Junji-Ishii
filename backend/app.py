@@ -6,6 +6,10 @@ import traceback
 import datetime
 import threading
 import zipfile
+import shutil
+import subprocess
+import tempfile
+import uuid
 from fastapi import Body, FastAPI, UploadFile, File, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -94,16 +98,69 @@ def _aplicar_cookie_se_novo(resp, sid, novo):
 _ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 
 
-def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str):
+def _converter_xlsb_para_xlsx(conteudo: bytes):
+    """Converte .xlsb -> .xlsx via LibreOffice headless, preservando cor de
+    fundo/formatação (o pyxlsb so leria valores, sem cor — e a cor e o que
+    o motor usa pra saber quais linhas pertencem a versao em teste).
+    Devolve None se o LibreOffice nao estiver disponivel neste ambiente
+    (ex.: maquina local sem instalacao permitida) — nesse caso o chamador
+    cai no aviso de conversao manual, igual antes.
+    """
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        return None
+
+    tmp_raiz = tempfile.mkdtemp(prefix="modeler_xlsb_")
+    perfil_dir = os.path.join(tmp_raiz, "perfil_lo")
+    try:
+        caminho_xlsb = os.path.join(tmp_raiz, "entrada.xlsb")
+        with open(caminho_xlsb, "wb") as f:
+            f.write(conteudo)
+
+        resultado = subprocess.run(
+            [
+                soffice,
+                "--headless",
+                "--norestore",
+                f"-env:UserInstallation=file:///{perfil_dir.replace(os.sep, '/')}",
+                "--convert-to",
+                "xlsx",
+                "--outdir",
+                tmp_raiz,
+                caminho_xlsb,
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+        caminho_xlsx = os.path.join(tmp_raiz, "entrada.xlsx")
+        if resultado.returncode != 0 or not os.path.exists(caminho_xlsx):
+            _log_erro(
+                "conversao_xlsb",
+                Exception(f"soffice rc={resultado.returncode} stderr={resultado.stderr[:500]!r}"),
+            )
+            return None
+        with open(caminho_xlsx, "rb") as f:
+            return f.read()
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        _log_erro("conversao_xlsb", exc)
+        return None
+    finally:
+        shutil.rmtree(tmp_raiz, ignore_errors=True)
+
+
+def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str) -> bytes:
+    """Valida o upload e devolve os bytes a usar dali pra frente — pode ser
+    o conteudo original (.xlsx valido) ou o resultado de uma conversao
+    automatica (.xlsb -> .xlsx via LibreOffice, quando disponivel)."""
     if not conteudo or not conteudo.startswith(_ZIP_MAGIC):
         raise HTTPException(
             status_code=400,
             detail=(
                 f"O arquivo '{nome_arquivo}' enviado como {rotulo} não parece ser um .xlsx válido "
                 "(o conteúdo não é reconhecível como pacote Excel). Isso costuma acontecer quando o "
-                "arquivo é um .xls antigo, .xlsb, foi renomeado sem converter de verdade, ou corrompeu "
-                "no envio. Abra no Excel e use \"Salvar como\" → Pasta de Trabalho do Excel (.xlsx), "
-                "depois envie de novo."
+                "arquivo é um .xls antigo muito antigo, foi renomeado sem converter de verdade, ou "
+                "corrompeu no envio. Abra no Excel e use \"Salvar como\" → Pasta de Trabalho do Excel "
+                "(.xlsx), depois envie de novo."
             ),
         )
     # A assinatura ZIP so confirma os primeiros bytes — um upload
@@ -121,12 +178,13 @@ def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str):
             # .xlsb (Excel Binary Workbook) TAMBEM e um pacote ZIP valido e
             # completo (mesma assinatura, mesma estrutura OPC) — so que usa
             # "xl/workbook.bin" em vez de "xl/workbook.xml", num formato
-            # binario que o openpyxl nao le. Sem checar isso especificamente,
-            # um .xlsb passa por cima dessa validacao inteira e so quebra la
-            # na frente, na hora de gerar a modelagem, com o mesmo erro
-            # cripitico de "workbook part" — mas ai o usuario ja preencheu
-            # tudo e so descobre o problema no fim.
+            # binario que o openpyxl nao le. Convertemos automaticamente via
+            # LibreOffice quando disponivel; senao, orientamos a converter
+            # manualmente (mesmo comportamento de antes).
             if "xl/workbook.xml" not in nomes and "xl/workbook.bin" in nomes:
+                convertido = _converter_xlsb_para_xlsx(conteudo)
+                if convertido is not None:
+                    return convertido
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -146,6 +204,7 @@ def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str):
                 "geralmente resolve na segunda tentativa."
             ),
         )
+    return conteudo
 
 
 @app.post("/api/upload-spec")
@@ -153,7 +212,7 @@ async def upload_spec(request: Request, response: Response, file: UploadFile = F
     sessao, sid, novo = _sessao_de(request)
     _aplicar_cookie_se_novo(response, sid, novo)
     conteudo = await file.read()
-    _validar_xlsx_basico(conteudo, file.filename, "SPEC")
+    conteudo = _validar_xlsx_basico(conteudo, file.filename, "SPEC")
     sessao.spec_bytes = conteudo
     sessao.nome_spec = file.filename
     return {"status": "success", "arquivo": file.filename}
@@ -164,7 +223,7 @@ async def upload_spec_empresas(request: Request, response: Response, file: Uploa
     sessao, sid, novo = _sessao_de(request)
     _aplicar_cookie_se_novo(response, sid, novo)
     conteudo = await file.read()
-    _validar_xlsx_basico(conteudo, file.filename, "SPEC ClaroEmpresas")
+    conteudo = _validar_xlsx_basico(conteudo, file.filename, "SPEC ClaroEmpresas")
     sessao.spec_empresas_bytes = conteudo
     return {"status": "success", "arquivo": file.filename}
 
