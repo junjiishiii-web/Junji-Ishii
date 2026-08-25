@@ -182,15 +182,33 @@ def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str) -> byt
             # LibreOffice quando disponivel; senao, orientamos a converter
             # manualmente (mesmo comportamento de antes).
             if "xl/workbook.xml" not in nomes and "xl/workbook.bin" in nomes:
-                convertido = _converter_xlsb_para_xlsx(conteudo)
-                if convertido is not None:
-                    return convertido
+                # O plano gratuito de nuvem tem so 512MB de RAM pro container
+                # inteiro. Converter um .xlsb grande/com muitas abas via
+                # LibreOffice pode facilmente estourar isso — e, diferente
+                # de um erro Python normal, um OOM kill do Linux mata o
+                # processo inteiro sem chance de dar um erro tratado,
+                # derrubando o servidor pra TODO MUNDO ate ele reiniciar
+                # sozinho. Por isso, acima de um tamanho conservador nem
+                # tentamos converter — caímos direto no aviso manual, que é
+                # bem mais barato que arriscar derrubar o servidor todo.
+                LIMITE_CONVERSAO_XLSB = 6 * 1024 * 1024  # 6MB
+                if len(conteudo) <= LIMITE_CONVERSAO_XLSB:
+                    convertido = _converter_xlsb_para_xlsx(conteudo)
+                    if convertido is not None:
+                        return convertido
                 raise HTTPException(
                     status_code=400,
                     detail=(
                         f"O arquivo '{nome_arquivo}' enviado como {rotulo} é um .xlsb (Pasta de Trabalho "
                         "Binária do Excel), não um .xlsx de verdade — mesmo com essa extensão, os "
-                        "formatos são diferentes e o sistema só lê .xlsx. Abra no Excel e use \"Salvar "
+                        "formatos são diferentes e o sistema só lê .xlsx. "
+                        + (
+                            "Esse arquivo é grande demais para a conversão automática no plano atual "
+                            "(risco de sobrecarregar o servidor). "
+                            if len(conteudo) > LIMITE_CONVERSAO_XLSB
+                            else ""
+                        )
+                        + "Abra no Excel e use \"Salvar "
                         "como\" → Pasta de Trabalho do Excel (.xlsx), depois envie o arquivo convertido."
                     ),
                 )
