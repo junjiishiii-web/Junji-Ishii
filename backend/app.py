@@ -115,8 +115,27 @@ def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str):
     try:
         with zipfile.ZipFile(io.BytesIO(conteudo)) as zf:
             corrompido = zf.testzip()
-            if corrompido is not None or "[Content_Types].xml" not in zf.namelist():
+            nomes = zf.namelist()
+            if corrompido is not None or "[Content_Types].xml" not in nomes:
                 raise zipfile.BadZipFile("pacote incompleto")
+            # .xlsb (Excel Binary Workbook) TAMBEM e um pacote ZIP valido e
+            # completo (mesma assinatura, mesma estrutura OPC) — so que usa
+            # "xl/workbook.bin" em vez de "xl/workbook.xml", num formato
+            # binario que o openpyxl nao le. Sem checar isso especificamente,
+            # um .xlsb passa por cima dessa validacao inteira e so quebra la
+            # na frente, na hora de gerar a modelagem, com o mesmo erro
+            # cripitico de "workbook part" — mas ai o usuario ja preencheu
+            # tudo e so descobre o problema no fim.
+            if "xl/workbook.xml" not in nomes and "xl/workbook.bin" in nomes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"O arquivo '{nome_arquivo}' enviado como {rotulo} é um .xlsb (Pasta de Trabalho "
+                        "Binária do Excel), não um .xlsx de verdade — mesmo com essa extensão, os "
+                        "formatos são diferentes e o sistema só lê .xlsx. Abra no Excel e use \"Salvar "
+                        "como\" → Pasta de Trabalho do Excel (.xlsx), depois envie o arquivo convertido."
+                    ),
+                )
     except zipfile.BadZipFile:
         raise HTTPException(
             status_code=400,
