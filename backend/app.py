@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from fastapi import Body, FastAPI, UploadFile, File, HTTPException, Request, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +18,6 @@ from fastapi.staticfiles import StaticFiles
 # Injeta a pasta atual no sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import gsheets
 import sessions
 from parser import gerar_modelagem_testes_completa, dados_para_frontend, exportar_planilha_para_bytes
 
@@ -244,36 +243,6 @@ async def upload_spec_empresas(request: Request, response: Response, file: Uploa
     conteudo = _validar_xlsx_basico(conteudo, file.filename, "SPEC ClaroEmpresas")
     sessao.spec_empresas_bytes = conteudo
     return {"status": "success", "arquivo": file.filename}
-
-
-def _link_google_sheets(request: Request, response: Response, payload: dict, alvo: str):
-    """alvo: 'spec' ou 'spec_empresas' — baixa e valida, devolvendo (sessao, nome_arquivo)."""
-    sessao, sid, novo = _sessao_de(request)
-    _aplicar_cookie_se_novo(response, sid, novo)
-    url = (payload or {}).get("url", "").strip()
-    if not url:
-        raise HTTPException(status_code=400, detail="Informe o link do Google Sheets.")
-    try:
-        conteudo, file_id = gsheets.baixar_como_xlsx(url)
-    except gsheets.GoogleSheetsError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    nome_arquivo = f"GoogleSheets_{file_id}.xlsx"
-    if alvo == "spec":
-        sessao.spec_bytes = conteudo
-        sessao.nome_spec = nome_arquivo
-    else:
-        sessao.spec_empresas_bytes = conteudo
-    return {"status": "success", "arquivo": nome_arquivo}
-
-
-@app.post("/api/upload-spec-link")
-def upload_spec_link(request: Request, response: Response, payload: dict = Body(...)):
-    return _link_google_sheets(request, response, payload, "spec")
-
-
-@app.post("/api/upload-spec-empresas-link")
-def upload_spec_empresas_link(request: Request, response: Response, payload: dict = Body(...)):
-    return _link_google_sheets(request, response, payload, "spec_empresas")
 
 
 @app.post("/api/upload-eep")

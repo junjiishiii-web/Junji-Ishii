@@ -41,11 +41,6 @@
       </div>
       <p class="file-loaded-name" id="specNameLabel" style="margin-top:8px; display:none;"></p>
 
-      <div class="upload-controls" style="margin-top:8px;">
-        <input type="text" id="specLinkInput" class="ivr-code-input" placeholder="...ou cole o link do Google Sheets (compartilhado como 'Qualquer pessoa com o link')" />
-        <button class="btn-upload" onclick="usarLinkGoogleSheets()">Usar link</button>
-      </div>
-
       <input type="text" id="ivrCodeInput" class="ivr-code-input" placeholder="Código IVR (ex: IVR-245422) — opcional" style="margin-top:8px;" />
     </div>
 
@@ -293,35 +288,6 @@
       throw new Error((res && (res.detail || res.erro)) || `Erro HTTP ${resp.status} ao enviar o arquivo.`);
     }
     return res;
-  }
-
-  /* ─── usar SPEC direto de um link do Google Sheets (publico/com link) ──── */
-  async function usarLinkGoogleSheets() {
-    const input = document.getElementById('specLinkInput');
-    const url = input.value.trim();
-    if (!url) { alert("Cole o link do Google Sheets primeiro."); return; }
-
-    const label = document.getElementById('specNameLabel');
-    try {
-      const resp = await fetch(`${API}/api/upload-spec-link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ url }),
-      });
-      const res = await resp.json().catch(() => null);
-      if (!resp.ok) {
-        throw new Error((res && (res.detail || res.erro)) || `Erro HTTP ${resp.status} ao buscar a planilha.`);
-      }
-      specLoaded = true;
-      specEmpresasLoaded = false;
-      label.textContent = `✓ ${res.arquivo} (via Google Sheets)`;
-      label.style.display = 'block';
-      document.getElementById('specFile').value = '';
-    } catch (err) {
-      specLoaded = false;
-      alert("Erro ao buscar do Google Sheets: " + (err && err.message ? err.message : err));
-    }
   }
 
   /* ─── upload SPEC (1 arquivo = única, 2 arquivos = MERGE + ClaroEmpresas) */
