@@ -5,6 +5,7 @@ import pathlib
 import traceback
 import datetime
 import threading
+import zipfile
 from fastapi import Body, FastAPI, UploadFile, File, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -103,6 +104,27 @@ def _validar_xlsx_basico(conteudo: bytes, nome_arquivo: str, rotulo: str):
                 "arquivo é um .xls antigo, .xlsb, foi renomeado sem converter de verdade, ou corrompeu "
                 "no envio. Abra no Excel e use \"Salvar como\" → Pasta de Trabalho do Excel (.xlsx), "
                 "depois envie de novo."
+            ),
+        )
+    # A assinatura ZIP so confirma os primeiros bytes — um upload
+    # interrompido no meio (comum num cold start lento de servidor gratuito
+    # em nuvem, cortando um arquivo grande) ainda comeca com essa assinatura
+    # mas fica com o pacote incompleto, e o openpyxl so descobre isso la na
+    # frente com um erro cripitico ("File contains no valid workbook part").
+    # Detectamos isso aqui, na hora do upload, com uma mensagem acionável.
+    try:
+        with zipfile.ZipFile(io.BytesIO(conteudo)) as zf:
+            corrompido = zf.testzip()
+            if corrompido is not None or "[Content_Types].xml" not in zf.namelist():
+                raise zipfile.BadZipFile("pacote incompleto")
+    except zipfile.BadZipFile:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"O arquivo '{nome_arquivo}' enviado como {rotulo} chegou incompleto/corrompido "
+                "(o pacote .xlsx não está íntegro) — provavelmente o envio foi interrompido no meio, "
+                "algo comum quando o servidor está 'acordando' de uma soneca. Tente enviar de novo, "
+                "geralmente resolve na segunda tentativa."
             ),
         )
 
