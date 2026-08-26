@@ -582,7 +582,19 @@ class GeradorCT:
             alt_lower = (est.get("alteracao") or "").lower()
             perfil_base = "anisim" if ("anisim" in alt_lower and "aninao" not in alt_lower and "ani nao" not in alt_lower) else "aninao"
 
-            if not transicoes:
+            # Sem NENHUM SP publicado na VersionamentoBI pra esta versão
+            # (self._sps_novos vazio), nao ha como saber qual das transicoes
+            # do estado e a que de fato mudou. Pra um projeto pequeno/
+            # genuinamente greenfield (poucas transicoes por estado — o
+            # arquivo de referencia testado tem no maximo 36), testar todas
+            # ainda e razoavel. Mas pra um estado GRANDE e ja existente (ex.:
+            # 93 ramos legados, so 1 chave nova incluida), testar tudo e
+            # especulativo demais (L3/L4) — 1 CT de garantia de fluxo ja
+            # cobre a garantia de que o estado e alcancavel e testavel. O
+            # limite abaixo fica acima do maior estado do projeto de
+            # referencia validado, pra nao regredir esse caso legitimo.
+            LIMITE_TRANSICOES_SEM_SP = 50
+            if not transicoes or (not self._sps_novos and len(transicoes) > LIMITE_TRANSICOES_SEM_SP):
                 caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, nome_real, perfil_entrada=perfil_base)
                 self._add_ct(bloco_idx, bloco_nome, nome_real, est["alteracao"], perfil_efetivo, caminho)
                 continue
