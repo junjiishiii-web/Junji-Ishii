@@ -403,11 +403,24 @@ def parse_versionamento_bi(wb, ivr_code=None, aba_candidatas=("VersionamentoBI",
     row_ivr = _find_ivr_block_row(linhas, ivr_code)
 
     if row_ivr == -1:
-        # Sem bloco de IVR identificavel (aba sem cabecalhos de versao, ou
-        # codigo informado nao encontrado): mantem o comportamento antigo de
-        # varrer a aba inteira, pra nao quebrar projetos greenfield sem
-        # blocos de versionamento.
-        linhas_do_bloco = linhas
+        if (ivr_code or "").strip():
+            # Um codigo de IVR FOI informado, mas nao bate com nenhum bloco
+            # desta aba — isso normalmente significa que o projeto ainda nao
+            # tem NENHUM ScriptPoint publicado na VersionamentoBI (comum em
+            # estados "Novo estado criado" recem-adicionados, cujo SP ainda
+            # nao foi documentado). Varrer a aba inteira aqui seria ERRADO:
+            # misturaria SPs de OUTROS projetos/blocos como se fossem novos
+            # desta versao, inflando (ou pior, filtrando incorretamente) os
+            # CTs gerados. Lista vazia e o resultado correto — o motor cai
+            # no comportamento de "projeto greenfield" (todas as transicoes
+            # do changelog contam, sem filtro de SP) automaticamente.
+            linhas_do_bloco = []
+        else:
+            # Sem codigo de IVR informado E sem bloco identificavel na aba
+            # (sem cabecalhos de versao nenhum): mantem o comportamento
+            # antigo de varrer a aba inteira, pra nao quebrar projetos
+            # greenfield sem blocos de versionamento estruturados.
+            linhas_do_bloco = linhas
     else:
         fim = _find_next_ivr_row(linhas, row_ivr)
         linhas_do_bloco = linhas[row_ivr - 1 : fim - 1]
