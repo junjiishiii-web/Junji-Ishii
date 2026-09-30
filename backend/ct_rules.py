@@ -285,6 +285,29 @@ def _match_prompt(state_data, prox_prompt_target):
     return prompts[0]
 
 
+def _sp_efetivo_transicao(spec_model, estado_nome, t):
+    """SP efetivo de uma transicao: o dela mesma, ou — quando ela nao tem
+    nenhum — o do PROMPT que ela aciona (coluna "Proximo Prompt").
+
+    Specs reais costumam marcar o SP nos prompts de retentativa (REJ1,
+    REJ2, SIL1, SIL2, INI), nao na transicao que leva ate eles — ex.: a
+    transicao "REJ > 1ª vez" tem sp=None, mas referencia o prompt "REJ1",
+    que TEM um SP marcado. Sem essa ligacao, o filtro de "SP novo" via
+    VersionamentoBI (gerar_cts_tipo_a) descarta essas transicoes como "sem
+    sinal de que fazem parte desta versao", mesmo quando o SP delas esta
+    corretamente publicado — e o proprio SP nunca aparece coberto em
+    BI_Marcacoes, porque nenhum CT jamais o referencia.
+    """
+    if t.get("sp"):
+        return t["sp"]
+    prox_prompt_target = t.get("prox_prompt") or ""
+    if not prox_prompt_target:
+        return None
+    state_data = spec_model["estados"].get(estado_nome, {})
+    prompt = _match_prompt(state_data, prox_prompt_target)
+    return prompt.get("sp") if prompt else None
+
+
 def _acao_para_step(idx, condicao, perfil):
     if idx == 0:
         return f"Ligar na URA ({'ANI Não' if perfil == 'aninao' else 'ANI Sim'})"
@@ -611,7 +634,7 @@ class GeradorCT:
             sem_sp_local = 0
             sem_caminho_local = 0
             for t in sorted(transicoes, key=_chave_ordenacao):
-                sp_t = t.get("sp")
+                sp_t = _sp_efetivo_transicao(self.spec_model, nome_real, t)
                 if self._sps_novos:
                     if sp_t and sp_t[1] not in self._sps_novos:
                         # SP ja existia antes desta versao (nao esta na lista
@@ -657,8 +680,24 @@ class GeradorCT:
                 alteracao_txt = f"{est['alteracao']} — condição: {t['condicao']}" if est.get("alteracao") else t["condicao"]
                 self._add_ct(
                     bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho_completo,
-                    sp_final=t.get("sp"), restricoes=restr,
+                    sp_final=sp_t, restricoes=restr,
                 )
+
+            if self._sps_novos and len(self.casos_teste) > cts_antes:
+                # O prompt de ENTRADA do estado (o primeiro da lista, tipo
+                # "INI") toca sempre que qualquer CT alcanca este estado —
+                # mas raramente tem uma transicao propria dedicada a ele (a
+                # unica transicao que aponta pra ele via "Proximo Prompt"
+                # costuma ja ter seu proprio SP de destino, que tem
+                # prioridade em _sp_efetivo_transicao). Sem isso, o SP do
+                # prompt de entrada nunca e creditado a nenhum CT, mesmo
+                # sendo tocado em TODOS eles — credita ao primeiro CT deste
+                # estado.
+                prompts_estado = self.spec_model["estados"].get(nome_real, {}).get("prompts", [])
+                if prompts_estado:
+                    sp_entrada = prompts_estado[0].get("sp")
+                    if sp_entrada and sp_entrada[1] in self._sps_novos and sp_entrada[1] not in self._sp_bi_cobertura:
+                        self._registrar_sp(sp_entrada, self.casos_teste[cts_antes]["ct_id"])
 
             if len(self.casos_teste) == cts_antes and transicoes:
                 partes = []
