@@ -258,6 +258,32 @@ def parse_state_sheet(sheet):
                     label = label[2:].lstrip()
                 label = label.strip()
 
+                if depth == 0:
+                    # Convencao alternativa de hierarquia observada em
+                    # algumas SPECs reais: em vez de um prefixo ".." no
+                    # proprio texto da condicao, cada NIVEL de profundidade
+                    # tem sua PROPRIA coluna numerada (cabecalhos "1º", "2º",
+                    # "3º"...) ANTES da coluna da condicao — ex.: uma unica
+                    # celula "1" preenchida = nivel 1 (DTMF 1), celulas "1"
+                    # e "1" preenchidas = nivel 2 (uma opcao dentro do DTMF
+                    # 1). Sem detectar isso, toda a hierarquia colapsa pro
+                    # texto da folha (ex.: "Chamada gerou protocolo" repetido
+                    # identico pra CADA opcao de DTMF), e a deduplicacao por
+                    # condicao mais na frente descarta quase tudo como
+                    # "repetido" por engano.
+                    col_condicao = mapa_transicao["condicao"]
+                    num_indices = 0
+                    for v in row[:col_condicao]:
+                        if v is None or (isinstance(v, str) and not v.strip()):
+                            break
+                        try:
+                            float(v)
+                        except (TypeError, ValueError):
+                            break
+                        num_indices += 1
+                    if num_indices > 1:
+                        depth = num_indices - 1
+
                 destino_raw = _valor(row, mapa_transicao["destino"])
                 prox_prompt = _valor(row, mapa_transicao["prox_prompt"])
                 obs_transicao = _valor(row, mapa_transicao["obs"])
