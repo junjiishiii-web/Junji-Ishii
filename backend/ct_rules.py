@@ -29,6 +29,13 @@ HUBS_BLACKLIST = (
     "timeout", "stay_mesmo", "rechamada", "nesse mesmo estado",
 )
 
+_ESTADO_NOVO_RE = re.compile(r"\bestado\s+novo\b", re.IGNORECASE)
+_REJ_SIL_RE = re.compile(r"\bREJ\b|\bSIL\b|digitou algo diferente|ficou em sil[eê]ncio", re.IGNORECASE)
+
+
+def _eh_transicao_rej_sil(condicao):
+    return bool(_REJ_SIL_RE.search(condicao or ""))
+
 BLOCO_PALETTE = [
     {"nome": "Navy", "header": "1F4E79", "fill": "DEEAF1"},
     {"nome": "Teal", "header": "006B6B", "fill": "D0ECEC"},
@@ -300,12 +307,33 @@ def _sp_efetivo_transicao(spec_model, estado_nome, t):
     """
     if t.get("sp"):
         return t["sp"]
-    prox_prompt_target = t.get("prox_prompt") or ""
-    if not prox_prompt_target:
+    prox_prompt_target = (t.get("prox_prompt") or "").strip()
+    if not prox_prompt_target or prox_prompt_target.lower() in ("nan", "- sem prompt -"):
         return None
-    state_data = spec_model["estados"].get(estado_nome, {})
-    prompt = _match_prompt(state_data, prox_prompt_target)
-    return prompt.get("sp") if prompt else None
+
+    # NAO usa _match_prompt aqui de proposito: o fallback dela (devolver
+    # prompts[0] quando nao acha correspondencia) e certo pra escolher QUE
+    # prompt mostrar num step generico, mas errado pra atribuir um SP — sem
+    # match de verdade, cairia no SP do primeiro prompt da lista (ex.: o
+    # "INI") mesmo quando o prox_prompt referenciado e outro completamente
+    # diferente (ex.: um prompt de saida do estado de DESTINO, como
+    # "MaxErro_DTMF" em "Transfer"), atribuindo o SP errado por engano.
+    alvo_norm = normalizar_chave(prox_prompt_target)
+
+    def _buscar_sp(nome_estado):
+        prompts = spec_model["estados"].get(nome_estado, {}).get("prompts", [])
+        casado = next((p for p in prompts if alvo_norm in normalizar_chave(p["id"])), None)
+        return casado.get("sp") if casado else None
+
+    sp = _buscar_sp(estado_nome)
+    if sp:
+        return sp
+    # O prompt referenciado pode pertencer ao estado de DESTINO (ex.: um
+    # prompt de despedida/transferencia definido la, nao no estado atual).
+    destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
+    if destino_real and destino_real != estado_nome:
+        return _buscar_sp(destino_real)
+    return None
 
 
 def _acao_para_step(idx, condicao, perfil):
@@ -604,6 +632,7 @@ class GeradorCT:
             transicoes = self.spec_model["estados"][nome_real].get("transicoes", [])
             alt_lower = (est.get("alteracao") or "").lower()
             perfil_base = "anisim" if ("anisim" in alt_lower and "aninao" not in alt_lower and "ani nao" not in alt_lower) else "aninao"
+            estado_novo = bool(_ESTADO_NOVO_RE.search(est.get("alteracao") or ""))
 
             # Sem NENHUM SP publicado na VersionamentoBI pra esta versão
             # (self._sps_novos vazio), nao ha como saber qual das transicoes
@@ -635,7 +664,16 @@ class GeradorCT:
             sem_caminho_local = 0
             for t in sorted(transicoes, key=_chave_ordenacao):
                 sp_t = _sp_efetivo_transicao(self.spec_model, nome_real, t)
-                if self._sps_novos:
+                # Num estado NOVO, os ramos de REJ/SIL (usuario digitou algo
+                # diferente / ficou em silencio) devem ser 100% mapeados,
+                # mesmo quando a tentativa final (normalmente a 3ª) sai pra
+                # OUTRO estado (ex.: Transfer) tocando um prompt que nao
+                # carrega SP nenhum (nem novo, nem antigo — e so um prompt
+                # de saida compartilhado). Sem essa excecao, esses ramos
+                # caiam no filtro de "sem sinal de SP novo" e ficavam de
+                # fora, mesmo sendo saida obrigatoria de um estado 100% novo.
+                rej_sil_estado_novo = estado_novo and _eh_transicao_rej_sil(t["condicao"])
+                if self._sps_novos and not rej_sil_estado_novo:
                     if sp_t and sp_t[1] not in self._sps_novos:
                         # SP ja existia antes desta versao (nao esta na lista
                         # de novos da VersionamentoBI) — fora do escopo do
