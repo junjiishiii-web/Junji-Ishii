@@ -60,7 +60,10 @@ def _aplicar_abreviacoes(texto):
 
 def abreviar_gherkin(texto):
     """Abrevia termos conhecidos (L8) e, se ainda assim passar de 255 chars,
-    trunca preservando a clausula Entao/Então (nunca corta ela fora)."""
+    trunca preservando a clausula Entao/Então quando possivel — mas o teto
+    de 255 e RIGIDO (campo de nome/summary no XRAY/JIRA nao aceita mais que
+    isso), entao, no caso raro em que ate a propria clausula Entao sozinha
+    excede 255, ela tambem e cortada em vez de deixar o texto estourar."""
     resultado = _aplicar_abreviacoes(texto)
     if len(resultado) <= MAX_GHERKIN:
         return resultado
@@ -79,14 +82,17 @@ def abreviar_gherkin(texto):
     sufixo = resultado[pos:]
     prefixo = resultado[:pos]
     disponivel = MAX_GHERKIN - len(sufixo) - 1
-    if disponivel <= 0:
-        return resultado
-    return prefixo[:disponivel].rstrip() + "…" + sufixo
+    if disponivel > 0:
+        return prefixo[:disponivel].rstrip() + "…" + sufixo
+    return sufixo[: MAX_GHERKIN - 1].rstrip() + "…"
 
 
 def montar_gherkin(prefixo, meio, sufixo):
-    """Monta 'prefixo + meio + sufixo' garantindo <=255 chars SEM cortar o
-    sufixo (que carrega a clausula Entao) — corta apenas o meio (L8)."""
+    """Monta 'prefixo + meio + sufixo' garantindo <=255 chars (teto rigido,
+    exigido pelo campo de nome/summary no XRAY/JIRA) — corta primeiro o meio
+    (L8), e so no caso raro de prefixo+sufixo sozinhos ja excederem 255,
+    corta tambem o sufixo (aceitando perder parte da clausula Entao em vez
+    de estourar o limite)."""
     prefixo = _aplicar_abreviacoes(prefixo)
     meio = _aplicar_abreviacoes(meio)
     sufixo = _aplicar_abreviacoes(sufixo)
@@ -94,13 +100,18 @@ def montar_gherkin(prefixo, meio, sufixo):
     if len(total) <= MAX_GHERKIN:
         return total
     disponivel = MAX_GHERKIN - len(prefixo) - len(sufixo) - 1
-    if disponivel <= 0:
-        # Prefixo+sufixo sozinhos ja estouram o limite: mantem a clausula
-        # Entao (mais importante para o validador) e aceita passar de 255,
-        # sinalizando para revisao manual em vez de gerar um Gherkin quebrado.
-        return prefixo + meio + sufixo
-    meio_curto = meio[:disponivel].rstrip() + "…"
-    return prefixo + meio_curto + sufixo
+    if disponivel > 0:
+        meio_curto = meio[:disponivel].rstrip() + "…"
+        return prefixo + meio_curto + sufixo
+
+    sem_meio = prefixo + sufixo
+    excesso = len(sem_meio) - MAX_GHERKIN
+    if excesso <= 0:
+        return sem_meio
+    if len(sufixo) > excesso + 1:
+        sufixo_curto = sufixo[: len(sufixo) - excesso - 1].rstrip() + "…"
+        return prefixo + sufixo_curto
+    return sem_meio[: MAX_GHERKIN - 1].rstrip() + "…"
 
 
 def extrair_restricoes_sessao(condicao_texto):
@@ -508,6 +519,12 @@ class GeradorCT:
         for chave, rotulo in tags.items():
             if restricoes and chave in restricoes:
                 pre_req_partes.append(f"{rotulo}: {restricoes[chave]}")
+        # Mesmas tags acima, SEM a "Alteração"/"Garantia de fluxo" — essa
+        # parte conta a HISTORIA do CT (o que mudou), nao a massa/requisito
+        # de dado necessario pra executa-lo. Usado na aba Massa_Testes, que
+        # antes so apontava "veja o Pré-Requisito" em vez de mostrar os
+        # requisitos de verdade.
+        requisitos_massa = " | ".join(pre_req_partes)
         pre_req_partes.append(f"Alteração: {alteracao}" if alteracao else "Garantia de fluxo principal")
         pre_requisito = " | ".join(pre_req_partes)
 
@@ -526,6 +543,7 @@ class GeradorCT:
             "sp_pendente": sp_pendente,
             "sp_final": f"{sp_final[0]}={sp_final[1]}" if sp_final else None,
             "pre_requisito": pre_requisito,
+            "requisitos_massa": requisitos_massa,
         }
         self.casos_teste.append(caso)
         return caso

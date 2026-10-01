@@ -119,8 +119,8 @@ def _escrever_legenda(wb, plano):
 
 def _escrever_massa_testes(wb, plano):
     ws = wb.create_sheet("Massa_Testes")
-    headers = ["ID CT", "Perfil ANI", "Requisitos de Chave/API/Data", "Massa (Fornecer CPF/CNPJ)"]
-    larguras = [10, 20, 55, 35]
+    headers = ["ID CT", "Estado", "Perfil ANI", "Requisitos de Chave/API/Data", "Massa (Fornecer CPF/CNPJ)"]
+    larguras = [10, 26, 14, 55, 35]
     for i, (h, w) in enumerate(zip(headers, larguras), start=1):
         ws.column_dimensions[chr(64 + i)].width = w
         cell = ws.cell(row=1, column=i, value=h)
@@ -128,9 +128,11 @@ def _escrever_massa_testes(wb, plano):
         cell.fill = HEADER_FILL
     for i, caso in enumerate(plano["casos_teste"], start=2):
         ws.cell(row=i, column=1, value=caso["ct_id"])
-        ws.cell(row=i, column=2, value=f"{caso['perfil']} (CPF/CNPJ)")
-        ws.cell(row=i, column=3, value="Especificados no Pré-Requisito do cenário")
-        ws.cell(row=i, column=4, value="")
+        ws.cell(row=i, column=2, value=caso["estado"])
+        ws.cell(row=i, column=3, value=caso["perfil"])
+        req_cell = ws.cell(row=i, column=4, value=caso.get("requisitos_massa") or caso["pre_requisito"])
+        req_cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.cell(row=i, column=5, value="")
 
 
 def _escrever_revisao_necessaria(wb, plano):
