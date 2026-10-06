@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261008" />
+  <link rel="stylesheet" href="style.css?v=20261009" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -699,6 +699,14 @@
     try {
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
+      const res = await dbGet('estado', 'resultado');
+      if (!res) {
+        // Sem modelagem salva nao ha trabalho a retomar: descarta copias antigas
+        // de SPEC/EEP para a tela inicial ficar em branco.
+        await Promise.all(['arq_spec', 'arq_spec_emp', 'arq_eep'].map(apagarEntrada));
+        return;
+      }
+
       // Arquivos de entrada: a tela inicial volta a mostrar o que foi carregado.
       const spec = await dbGet('estado', 'arq_spec');
       const emp = await dbGet('estado', 'arq_spec_emp');
@@ -719,8 +727,6 @@
         servidorPrecisaReenvio = true;
       }
 
-      const res = await dbGet('estado', 'resultado');
-      if (!res) return;
       avaliacoesQA = (await dbGet('estado', 'avaliacoes')) || {};
       const ui = (await dbGet('estado', 'ui')) || {};
       if (ui.tipo_a) document.getElementById('projetoTipoSelect').value = ui.tipo_a;
