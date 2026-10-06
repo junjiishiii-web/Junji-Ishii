@@ -354,6 +354,39 @@ def _find_ivr_block_row(linhas, ivr_code=None):
     return melhor
 
 
+def _padrao_ivr(ivr_code):
+    alvo = (ivr_code or "").strip().upper()
+    digitos = re.sub(r"\D", "", alvo)
+    padrao = re.compile(r"(?<!\d)" + re.escape(digitos) + r"(?!\d)") if digitos else None
+    return alvo, padrao
+
+
+def celula_casa_ivr(val_upper, alvo, padrao):
+    """True se o texto (maiusculo) da celula cita o IVR informado — pelos
+    digitos (tolera "IVR-245421" / "IVR- 245421") ou pela string exata."""
+    if padrao and "IVR" in val_upper and padrao.search(val_upper):
+        return True
+    return bool(alvo) and alvo in val_upper
+
+
+def _find_ivr_block_rows(linhas, ivr_code):
+    """TODAS as linhas de cabecalho (1-indexadas, em ordem) dos blocos do IVR
+    informado. Um mesmo IVR pode ter varios blocos na aba de versionamento
+    (ex.: uma versao em rosa e uma atualizacao em amarelo, que pode ter
+    sobrescrito a anterior) — todos fazem parte do escopo do projeto."""
+    alvo, padrao = _padrao_ivr(ivr_code)
+    if not alvo:
+        return []
+    achadas = []
+    for idx, linha in enumerate(linhas):
+        for val in linha:
+            val_upper = str(val or "").strip().upper()
+            if val_upper and celula_casa_ivr(val_upper, alvo, padrao):
+                achadas.append(idx + 1)
+                break
+    return achadas
+
+
 def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "Versionamento")):
     aba = None
     for nome in aba_candidatas:
@@ -364,10 +397,15 @@ def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "V
         return {"versao": None, "ivr": None, "responsavel": None, "estados_alterados": []}
 
     linhas = _materializar_linhas(aba, 10)
-    row_ivr = _find_ivr_block_row(linhas, ivr_code)
-    if row_ivr == -1:
+    if (ivr_code or "").strip():
+        rows_ivr = _find_ivr_block_rows(linhas, ivr_code)
+    else:
+        unico = _find_ivr_block_row(linhas, ivr_code)
+        rows_ivr = [unico] if unico != -1 else []
+    if not rows_ivr:
         return {"versao": None, "ivr": None, "responsavel": None, "estados_alterados": []}
 
+    row_ivr = rows_ivr[-1]
     linha_ivr = linhas[row_ivr - 1]
     versao = str(linha_ivr[0] or "").strip() or None
     ivr_texto = None
@@ -378,19 +416,21 @@ def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "V
     responsavel = str(linha_ivr[4] or "").strip() or None
 
     estados_alterados = []
-    for idx in range(row_ivr, len(linhas)):
-        linha = linhas[idx]
-        estado_nome = str(linha[2] or "").strip()
-        alteracao_desc = str(linha[3] or "").strip()
-        if not estado_nome or estado_nome.lower() == "none":
-            if not alteracao_desc:
+    for row_bloco in rows_ivr:
+        for idx in range(row_bloco, len(linhas)):
+            linha = linhas[idx]
+            estado_nome = str(linha[2] or "").strip()
+            alteracao_desc = str(linha[3] or "").strip()
+            if not estado_nome or estado_nome.lower() == "none":
+                if not alteracao_desc:
+                    break
+                continue
+            if "ivr" in estado_nome.upper() or re.match(r"^v\.\d+$", estado_nome.lower()):
                 break
-            continue
-        if "ivr" in estado_nome.upper() or re.match(r"^v\.\d+$", estado_nome.lower()):
-            break
-        estados_alterados.append({"nome": estado_nome, "alteracao": alteracao_desc})
+            estados_alterados.append({"nome": estado_nome, "alteracao": alteracao_desc})
 
     return {
+        "blocos": len(rows_ivr),
         "versao": versao,
         "ivr": ivr_texto,
         "responsavel": responsavel,
@@ -426,7 +466,12 @@ def parse_versionamento_bi(wb, ivr_code=None, aba_candidatas=("VersionamentoBI",
         return []
 
     linhas = _materializar_linhas(aba, 10)
-    row_ivr = _find_ivr_block_row(linhas, ivr_code)
+    if (ivr_code or "").strip():
+        rows_ivr = _find_ivr_block_rows(linhas, ivr_code)
+    else:
+        unico = _find_ivr_block_row(linhas, ivr_code)
+        rows_ivr = [unico] if unico != -1 else []
+    row_ivr = rows_ivr[-1] if rows_ivr else -1
 
     if row_ivr == -1:
         if (ivr_code or "").strip():
@@ -448,11 +493,15 @@ def parse_versionamento_bi(wb, ivr_code=None, aba_candidatas=("VersionamentoBI",
             # greenfield sem blocos de versionamento estruturados.
             linhas_do_bloco = linhas
     else:
-        fim = _find_next_ivr_row(linhas, row_ivr)
-        linhas_do_bloco = linhas[row_ivr - 1 : fim - 1]
+        # Um mesmo IVR pode ter varios blocos (ex.: versao inicial + a
+        # atualizacao que a sobrescreveu): todos entram no escopo.
+        linhas_do_bloco = []
+        for r in rows_ivr:
+            fim = _find_next_ivr_row(linhas, r)
+            linhas_do_bloco.extend(linhas[r - 1 : fim - 1])
 
     sps = []
-    vistos = set()
+    indice_por_codigo = {}
     for valores in linhas_do_bloco:
         # Celulas de data/hora (ex.: quando a marcacao foi publicada) viram
         # string tipo "2026-07-10 00:00:00" via str() — isso bate por
@@ -504,10 +553,16 @@ def parse_versionamento_bi(wb, ivr_code=None, aba_candidatas=("VersionamentoBI",
             if codigo and not descricao:
                 descricao = max((t for t in textos if t != codigo), key=len, default="")
 
-        if not codigo or codigo in vistos:
+        if not codigo:
             continue
-        vistos.add(codigo)
-        sps.append({"codigo": codigo, "descricao": descricao or "", "estado": estado})
+        entrada = {"codigo": codigo, "descricao": descricao or "", "estado": estado}
+        if codigo in indice_por_codigo:
+            # Reaparece em bloco posterior (atualizacao): a versao mais
+            # recente prevalece, mantendo a posicao original na lista.
+            sps[indice_por_codigo[codigo]] = entrada
+            continue
+        indice_por_codigo[codigo] = len(sps)
+        sps.append(entrada)
     return sps
 
 
@@ -574,7 +629,53 @@ def _enriquecer_mapa_rotas_com_fuzzy(mapa_rotas, estados):
                 mapa_rotas[chave] = mapa_rotas[proximos[0]]
 
 
-def read_spec(spec_path_or_bytes, ivr_code=None):
+def _normalizar_titulo(texto):
+    txt = unicodedata.normalize("NFKD", str(texto or "").lower())
+    txt = "".join(c for c in txt if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "", txt)
+
+
+def descobrir_ivr(wb, nome_projeto=None, eep_filename="", eep_jira=""):
+    """Quando o usuario nao informa o codigo do IVR, descobre qual bloco da
+    aba de versionamento e do projeto: primeiro pelo NOME DO PROJETO do EEP
+    (o titulo do bloco repete o nome — "IVR-245421 - [CLARO TLV] ADEQUACAO
+    DA URA..."), depois pelo codigo IVR no nome do arquivo/EEP, desde que
+    exista na aba. Sem isso o motor pegaria o ULTIMO bloco da aba, que e de
+    outro projeto. Devolve (codigo "IVR-NNNNNN" ou None, origem)."""
+    titulos = {}
+    for nome in wb.sheetnames:
+        if "versionamento" not in nome.lower():
+            continue
+        for linha in _materializar_linhas(wb[nome], 10):
+            for val in linha:
+                m = re.search(r"IVR\W*(\d{5,7})\W*(.*)", str(val or ""), re.IGNORECASE | re.DOTALL)
+                if m and _normalizar_titulo(m.group(2)):
+                    titulos.setdefault(m.group(1), set()).add(_normalizar_titulo(m.group(2)))
+    if not titulos:
+        return None, None
+
+    alvo_nome = _normalizar_titulo(nome_projeto)
+    if len(alvo_nome) >= 12:
+        melhor = (0.0, None)
+        for codigo, lista in titulos.items():
+            for titulo in lista:
+                if titulo.startswith(alvo_nome) or alvo_nome.startswith(titulo):
+                    pontuacao = 1.0
+                else:
+                    pontuacao = difflib.SequenceMatcher(None, alvo_nome, titulo).ratio()
+                if pontuacao > melhor[0]:
+                    melhor = (pontuacao, codigo)
+        if melhor[1] and melhor[0] >= 0.88:
+            return f"IVR-{melhor[1]}", "nome do projeto (EEP)"
+
+    for fonte, rotulo in ((eep_filename, "nome do arquivo do EEP"), (eep_jira, "codigo do EEP")):
+        m = re.search(r"IVR\s*[-_]?\s*(\d{5,7})", str(fonte or ""), re.IGNORECASE)
+        if m and m.group(1) in titulos:
+            return f"IVR-{m.group(1)}", rotulo
+    return None, None
+
+
+def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="", eep_jira=""):
     """Le a SPEC inteira e devolve o modelo estrutural cru (sem regras de CT ainda)."""
     wb = _abrir_workbook(spec_path_or_bytes)
     lista_abas = [
@@ -590,6 +691,10 @@ def read_spec(spec_path_or_bytes, ivr_code=None):
 
     _enriquecer_mapa_rotas_com_fuzzy(mapa_rotas, estados)
 
+    ivr_origem = "informado pelo usuario" if (ivr_code or "").strip() else None
+    if not ivr_origem:
+        ivr_code, ivr_origem = descobrir_ivr(wb, eep_nome, eep_filename, eep_jira)
+
     versionamento = parse_versionamento(wb, ivr_code)
     versionamento_bi = parse_versionamento_bi(wb, ivr_code)
 
@@ -599,6 +704,8 @@ def read_spec(spec_path_or_bytes, ivr_code=None):
         "mapa_rotas": mapa_rotas,
         "versionamento": versionamento,
         "versionamento_bi": versionamento_bi,
+        "ivr_resolvido": ivr_code,
+        "ivr_origem": ivr_origem,
     }
 
 

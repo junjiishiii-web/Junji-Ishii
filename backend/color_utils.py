@@ -14,6 +14,8 @@ from collections import Counter
 
 from lxml import etree
 
+from spec_reader import _padrao_ivr, celula_casa_ivr
+
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -83,13 +85,14 @@ def _shared_strings(spec_bytes):
     ]
 
 
-def detectar_cor_projeto(spec_bytes, ivr_code, aba_versionamento="_Versionamento_"):
-    """
-    Localiza o bloco do IVR informado na aba de Versionamento e devolve a cor de
-    fundo (AARRGGBB) predominante das celulas daquele bloco. Se nao encontrar o
-    codigo IVR ou nenhuma cor marcada, devolve None (o chamador deve tratar como
-    "sem filtro de cor", cobrindo tudo o que estiver na aba).
-    """
+def detectar_cores_projeto(spec_bytes, ivr_code, aba_versionamento="_Versionamento_"):
+    """Todas as cores de fundo dos cabecalhos de bloco do IVR informado, na
+    ordem de frequencia. Um mesmo IVR pode ter varios blocos em cores
+    diferentes (ex.: versao inicial em rosa e a atualizacao em amarelo) e
+    todos entram no escopo. Compara pelos digitos do codigo (tolera "IVR-N" e
+    "IVR- N") e ignora o branco de fundo. Sem codigo, usa a cor mais frequente
+    da aba; com codigo nao encontrado, devolve [] (nada de adivinhar a cor de
+    outro projeto)."""
     part = _sheet_name_to_part(spec_bytes, aba_versionamento)
     if not part:
         for alt in ("Versionamento", "VersionamentoBI", "_VersionamentoBI_"):
@@ -97,15 +100,16 @@ def detectar_cor_projeto(spec_bytes, ivr_code, aba_versionamento="_Versionamento
             if part:
                 break
     if not part:
-        return None
+        return []
 
     fill_colors, xf_to_fill = get_fill_maps(spec_bytes)
     shared = _shared_strings(spec_bytes)
-
     with zipfile.ZipFile(spec_bytes, "r") as z:
         sheet_xml = etree.fromstring(z.read(part))
 
     def get_val(cell):
+        if cell.get("t") == "inlineStr":
+            return "".join(t.text or "" for t in cell.findall(f".//{{{NS}}}t"))
         v = cell.find(f"{{{NS}}}v")
         if v is None or v.text is None:
             return ""
@@ -114,44 +118,38 @@ def detectar_cor_projeto(spec_bytes, ivr_code, aba_versionamento="_Versionamento
             return shared[idx] if idx < len(shared) else ""
         return v.text
 
-    ivr_norm = (ivr_code or "").strip().upper()
-    colors_found = Counter()
-    found_target_row = False
-
+    SEM_COR = ("", "00000000", "FFFFFFFF")
+    alvo, padrao = _padrao_ivr(ivr_code)
+    contagem = Counter()
     for row in sheet_xml.findall(f".//{{{NS}}}row"):
-        row_has_target = False
-        row_colors = []
+        cores_linha = Counter()
+        casou = False
         for cell in row.findall(f"{{{NS}}}c"):
-            val = str(get_val(cell))
-            color = cell_color(cell, xf_to_fill, fill_colors)
-            if color and color not in ("00000000", ""):
-                row_colors.append(color)
-            if ivr_norm and ivr_norm in val.strip().upper():
-                row_has_target = True
-        if row_has_target:
-            found_target_row = True
-            colors_found.update(row_colors)
+            if alvo and celula_casa_ivr(str(get_val(cell)).strip().upper(), alvo, padrao):
+                casou = True
+            cor = cell_color(cell, xf_to_fill, fill_colors)
+            if cor not in SEM_COR:
+                cores_linha[cor] += 1
+        if alvo:
+            if casou and cores_linha:
+                contagem[cores_linha.most_common(1)[0][0]] += 1
+        else:
+            contagem.update(cores_linha)
+    if not alvo:
+        return [c for c, _ in contagem.most_common(1)]
+    return [c for c, _ in contagem.most_common()]
 
-    if not found_target_row or not colors_found:
-        # Sem codigo IVR encontrado (ou linha sem marcacao de cor): varre a
-        # planilha inteira e usa a cor mais frequente entre as celulas
-        # marcadas, assumindo que seja a versao vigente.
-        colors_found = Counter()
-        for row in sheet_xml.findall(f".//{{{NS}}}row"):
-            for cell in row.findall(f"{{{NS}}}c"):
-                color = cell_color(cell, xf_to_fill, fill_colors)
-                if color and color not in ("00000000", ""):
-                    colors_found.update([color])
 
-    if not colors_found:
-        return None
-    return colors_found.most_common(1)[0][0]
+def detectar_cor_projeto(spec_bytes, ivr_code, aba_versionamento="_Versionamento_"):
+    cores = detectar_cores_projeto(spec_bytes, ivr_code, aba_versionamento)
+    return cores[0] if cores else None
 
 
 def scan_all_sheets_for_color(spec_bytes, target_color):
     """Retorna {aba: [(row, col, valor, conteudo_adjacente)]} para celulas na cor alvo."""
     if not target_color:
         return {}
+    alvos = {target_color} if isinstance(target_color, str) else set(target_color)
     fill_colors, xf_to_fill = get_fill_maps(spec_bytes)
     shared = _shared_strings(spec_bytes)
 
@@ -168,6 +166,8 @@ def scan_all_sheets_for_color(spec_bytes, target_color):
         }
 
         def get_val(cell):
+            if cell.get("t") == "inlineStr":
+                return "".join(t.text or "" for t in cell.findall(f".//{{{NS}}}t"))
             v = cell.find(f"{{{NS}}}v")
             if v is None or v.text is None:
                 return ""
@@ -191,7 +191,7 @@ def scan_all_sheets_for_color(spec_bytes, target_color):
             for row in tree.findall(f".//{{{NS}}}row"):
                 cells = row.findall(f"{{{NS}}}c")
                 for ci, cell in enumerate(cells):
-                    if is_project_color(cell, xf_to_fill, fill_colors, target_color):
+                    if cell.get("s") and fill_colors.get(xf_to_fill.get(int(cell.get("s")), 0), "") in alvos:
                         val = str(get_val(cell)).strip()
                         if val:
                             cont = str(get_val(cells[ci + 1])) if ci + 1 < len(cells) else ""

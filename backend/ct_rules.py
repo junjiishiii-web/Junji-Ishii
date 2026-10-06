@@ -743,16 +743,33 @@ class GeradorCT:
         ]
 
         if not estados_alterados:
-            self.revisao_necessaria.append(
-                {
-                    "tipo": "versionamento_vazio",
-                    "detalhe": "Nenhum estado alterado encontrado na aba de Versionamento — "
-                    "confira se o código IVR informado bate com o bloco marcado na SPEC.",
-                }
-            )
-            estados_alterados = [
-                {"nome": self.spec_model["lista_abas"][0], "alteracao": "Garantia de teste do fluxo principal"}
-            ] if self.spec_model["lista_abas"] else []
+            ivr_usado = self.spec_model.get("ivr_resolvido")
+            if ivr_usado:
+                # Com o IVR definido (informado ou descoberto), "nada
+                # encontrado" quer dizer que o bloco dele nao foi lido —
+                # nunca cair no plano B de testar a primeira aba da SPEC, que
+                # modelaria um estado que nao pertence ao projeto.
+                self.revisao_necessaria.append(
+                    {
+                        "tipo": "versionamento_vazio",
+                        "detalhe": f"Não encontrei estados alterados nem ScriptPoints do {ivr_usado} nas abas de "
+                        "Versionamento e Versionamento BI (conferi variações como 'IVR-N' e 'IVR- N'). Nenhum CT "
+                        "foi gerado para não modelar um estado que não é do projeto. Confira o código IVR, o nome "
+                        "das abas de versionamento e se o bloco do projeto está preenchido.",
+                    }
+                )
+                estados_alterados = []
+            else:
+                self.revisao_necessaria.append(
+                    {
+                        "tipo": "versionamento_vazio",
+                        "detalhe": "Nenhum estado alterado encontrado na aba de Versionamento — "
+                        "confira se o código IVR informado bate com o bloco marcado na SPEC.",
+                    }
+                )
+                estados_alterados = [
+                    {"nome": self.spec_model["lista_abas"][0], "alteracao": "Garantia de teste do fluxo principal"}
+                ] if self.spec_model["lista_abas"] else []
 
         total_estados = len(estados_alterados)
         for bloco_idx, est in enumerate(estados_alterados, start=1):
@@ -1173,6 +1190,14 @@ class GeradorCT:
             self.gerar_cts_tipo_a()
         else:
             self.gerar_cts_tipo_b()
+        if not self.casos_teste and self.spec_model.get("ivr_resolvido"):
+            return {
+                "casos_teste": [],
+                "revisao_necessaria": self.revisao_necessaria,
+                "bi_marcacoes": self.bi_marcacoes(),
+                "legenda": [],
+                "blocos": [],
+            }
         self._progresso(82, "Verificando fraseologia obrigatória (L9)...")
         self.gerar_cts_fraseologia(itens_cor or {})
         self._progresso(90, "Montando o bloco regressivo...")

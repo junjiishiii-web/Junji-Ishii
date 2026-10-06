@@ -34,15 +34,21 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     spec_raw = _bytes_of(spec_bytes)
     eep_raw = _bytes_of(eep_bytes)
 
-    avisar(2, "Lendo a SPEC...")
-    spec_model = spec_reader.read_spec(io.BytesIO(spec_raw), ivr_code=ivr_code)
-
-    avisar(10, "Detectando a cor da versão vigente...")
-    cor_detectada = color_utils.detectar_cor_projeto(io.BytesIO(spec_raw), ivr_code)
-    itens_cor = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw), cor_detectada) if cor_detectada else {}
-
-    avisar(15, "Lendo o EEP...")
+    avisar(2, "Lendo o EEP...")
     eep_model = eep_reader.minerar_eep(eep_raw, eep_filename)
+
+    avisar(6, "Lendo a SPEC...")
+    spec_model = spec_reader.read_spec(
+        io.BytesIO(spec_raw), ivr_code=ivr_code,
+        eep_nome=eep_model.get("nome"), eep_filename=eep_filename, eep_jira=eep_model.get("jira"),
+    )
+    # Codigo efetivo: o informado ou, se vazio, o descoberto pelo nome do projeto.
+    ivr_efetivo = spec_model.get("ivr_resolvido") or ivr_code
+
+    avisar(12, "Detectando a(s) cor(es) da versão vigente...")
+    cores_detectadas = color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
+    cor_detectada = cores_detectadas[0] if cores_detectadas else None
+    itens_cor = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw), cores_detectadas) if cores_detectadas else {}
 
     def _sub_progresso(pct_interno, etapa):
         # A geracao de CTs relata seu proprio progresso 0-100; remapeia para
@@ -55,14 +61,26 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     if spec_bytes_empresas:
         avisar(91, "Processando a segunda SPEC (ClaroEmpresas)...")
         spec_raw_2 = _bytes_of(spec_bytes_empresas)
-        spec_model_empresas = spec_reader.read_spec(io.BytesIO(spec_raw_2), ivr_code=ivr_code)
-        cor_2 = color_utils.detectar_cor_projeto(io.BytesIO(spec_raw_2), ivr_code)
-        itens_cor_2 = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw_2), cor_2) if cor_2 else {}
+        spec_model_empresas = spec_reader.read_spec(
+            io.BytesIO(spec_raw_2), ivr_code=ivr_efetivo,
+            eep_nome=eep_model.get("nome"), eep_filename=eep_filename, eep_jira=eep_model.get("jira"),
+        )
+        cores_2 = color_utils.detectar_cores_projeto(io.BytesIO(spec_raw_2), ivr_efetivo)
+        itens_cor_2 = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw_2), cores_2) if cores_2 else {}
         plano_empresas = gerar_plano_ct(spec_model_empresas, eep_model, tipo_a=tipo_a, itens_cor=itens_cor_2)
 
     avisar(98, "Finalizando...")
 
-    jira_ivr = ivr_code or spec_model["versionamento"].get("ivr") or eep_model.get("jira") or "IVR não identificado"
+    if spec_model.get("ivr_origem") and spec_model.get("ivr_origem") != "informado pelo usuario":
+        plano["revisao_necessaria"].append(
+            {
+                "tipo": "info_ivr_identificado",
+                "detalhe": f"Código do IVR não informado: usei {spec_model['ivr_resolvido']}, identificado pelo "
+                f"{spec_model['ivr_origem']}. Se não for esse o projeto, informe o código IVR e gere de novo.",
+            }
+        )
+
+    jira_ivr = ivr_efetivo or spec_model["versionamento"].get("ivr") or eep_model.get("jira") or "IVR não identificado"
 
     return {
         "projeto_nome": eep_model.get("nome"),
