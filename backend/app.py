@@ -10,10 +10,10 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import json
 import re
 from typing import List
-from urllib.parse import quote
-from fastapi import Body, FastAPI, UploadFile, File, HTTPException, Request, Response
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -334,7 +334,6 @@ def iniciar_modelagem(request: Request, response: Response, tipo_a: bool = True,
             {"percentual": 0, "etapa": "Iniciando...", "concluido": False, "erro": None, "inicio": _time.time(), "elapsed": 0.0}
         )
     sessao.resultado = None
-    sessao.evidencias = {}
 
     thread = threading.Thread(target=_rodar_modelagem_em_thread, args=(sessao, tipo_a, ivr_code), daemon=True)
     thread.start()
@@ -401,13 +400,17 @@ def relatorio_validacao(request: Request, response: Response, tipo_a: bool = Tru
     return relatorio
 
 
-# ---------- Execucao dos testes: evidencias por CT + exportacao em PDF ----------
+# ---------- Execucao dos testes: exportacao em PDF (sem estado no servidor) ----------
+# O trabalho de execucao (status, bugs, evidencias) fica salvo no NAVEGADOR de
+# quem executa (IndexedDB) — o servidor gratuito dorme/reinicia e perderia tudo.
+# Na exportacao, o navegador manda a modelagem, as avaliacoes e as evidencias.
 
 EVID_MAX_ARQUIVO = 5 * 1024 * 1024  # 5MB por arquivo
 EVID_MAX_POR_CT = 10
-EVID_MAX_TOTAL = 30 * 1024 * 1024  # 30MB por sessao (o servidor gratuito tem pouca RAM)
+EVID_MAX_TOTAL = 30 * 1024 * 1024
 EVID_EXTENSOES = {"txt", "log", "csv", "json", "xml", "png", "jpg", "jpeg", "pdf", "docx", "xlsx"}
 STATUS_EXECUCAO = {"pendente", "ok", "nok", "blocked"}
+MAX_CTS_PDF = 2000
 
 
 def _nome_seguro(nome):
@@ -416,102 +419,93 @@ def _nome_seguro(nome):
     return base[:120] or "evidencia.txt"
 
 
-def _ct_existe(sessao, ct_id):
-    casos = (sessao.resultado or {}).get("casos_teste") or []
-    if not any(c["ct_id"] == ct_id for c in casos):
-        raise HTTPException(status_code=404, detail=f"CT '{ct_id}' não existe na modelagem atual.")
+def _texto(valor, limite=4000):
+    return "" if valor is None else str(valor)[:limite]
 
 
-def _evidencias_publicas(sessao, ct_id):
-    return [
-        {"id": e["id"], "nome": e["nome"], "tamanho": len(e["dados"])}
-        for e in sessao.evidencias.get(ct_id, [])
-    ]
-
-
-@app.post("/api/evidencias/{ct_id}")
-async def anexar_evidencias(ct_id: str, request: Request, response: Response, files: List[UploadFile] = File(...)):
-    sessao, sid, novo = _sessao_de(request)
-    _aplicar_cookie_se_novo(response, sid, novo)
-    _ct_existe(sessao, ct_id)
-
-    recebidos = []
-    for arq in files:
-        nome = _nome_seguro(arq.filename)
-        ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
-        if ext not in EVID_EXTENSOES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{nome}': tipo não permitido. Use: {', '.join(sorted(EVID_EXTENSOES))}.",
+def _caso_seguro(c):
+    """Normaliza um CT vindo do navegador (tipos e tamanhos), pra o gerador
+    de PDF nunca quebrar nem receber estrutura inesperada."""
+    steps = []
+    for st in (c.get("steps") or [])[:200]:
+        if isinstance(st, dict):
+            steps.append(
+                {
+                    "step_num": _texto(st.get("step_num"), 10),
+                    "acao": _texto(st.get("acao")),
+                    "estado": _texto(st.get("estado"), 200),
+                    "prompt_id": _texto(st.get("prompt_id"), 200),
+                    "prompt_texto": _texto(st.get("prompt_texto")),
+                    "resultado": _texto(st.get("resultado", st.get("prompt_texto"))),
+                }
             )
-        dados = await arq.read()
-        if len(dados) > EVID_MAX_ARQUIVO:
-            raise HTTPException(status_code=400, detail=f"'{nome}' passa de {EVID_MAX_ARQUIVO // (1024 * 1024)}MB.")
-        recebidos.append({"id": uuid.uuid4().hex[:10], "nome": nome, "dados": dados})
-
-    atuais = sessao.evidencias.setdefault(ct_id, [])
-    if len(atuais) + len(recebidos) > EVID_MAX_POR_CT:
-        raise HTTPException(status_code=400, detail=f"Máximo de {EVID_MAX_POR_CT} evidências por CT.")
-    total = sum(len(e["dados"]) for lista in sessao.evidencias.values() for e in lista)
-    if total + sum(len(e["dados"]) for e in recebidos) > EVID_MAX_TOTAL:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Limite de {EVID_MAX_TOTAL // (1024 * 1024)}MB de evidências nesta sessão atingido. "
-            "Exporte o PDF e remova evidências já registradas.",
-        )
-    atuais.extend(recebidos)
-    return {"evidencias": _evidencias_publicas(sessao, ct_id)}
-
-
-@app.get("/api/evidencias")
-def listar_evidencias(request: Request, response: Response):
-    sessao, sid, novo = _sessao_de(request)
-    _aplicar_cookie_se_novo(response, sid, novo)
-    return {ct: _evidencias_publicas(sessao, ct) for ct in sessao.evidencias}
-
-
-@app.get("/api/evidencias/{ct_id}/{evid_id}")
-def baixar_evidencia(ct_id: str, evid_id: str, request: Request):
-    sessao, sid, novo = _sessao_de(request)
-    ev = next((e for e in sessao.evidencias.get(ct_id, []) if e["id"] == evid_id), None)
-    if not ev:
-        raise HTTPException(status_code=404, detail="Evidência não encontrada (a sessão pode ter expirado).")
-    resp = StreamingResponse(
-        io.BytesIO(ev["dados"]),
-        media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(ev['nome'])}",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
-    _aplicar_cookie_se_novo(resp, sid, novo)
-    return resp
-
-
-@app.delete("/api/evidencias/{ct_id}/{evid_id}")
-def remover_evidencia(ct_id: str, evid_id: str, request: Request, response: Response):
-    sessao, sid, novo = _sessao_de(request)
-    _aplicar_cookie_se_novo(response, sid, novo)
-    lista = sessao.evidencias.get(ct_id, [])
-    sessao.evidencias[ct_id] = [e for e in lista if e["id"] != evid_id]
-    return {"evidencias": _evidencias_publicas(sessao, ct_id)}
+    try:
+        bloco = int(c.get("bloco") or 1)
+    except (TypeError, ValueError):
+        bloco = 1
+    return {
+        "ct_id": _texto(c.get("ct_id"), 40),
+        "bloco": max(bloco, 1),
+        "bloco_nome": _texto(c.get("bloco_nome"), 80),
+        "regressivo": bool(c.get("regressivo")),
+        "estado": _texto(c.get("estado"), 200),
+        "perfil": _texto(c.get("perfil"), 20),
+        "gherkin": _texto(c.get("gherkin")),
+        "pre_requisito": _texto(c.get("pre_requisito")),
+        "sp_pendente": bool(c.get("sp_pendente")),
+        "steps": steps,
+    }
 
 
 @app.post("/api/exportar-execucao-pdf")
-def exportar_execucao_pdf(request: Request, payload: dict = Body(default={})):
-    sessao, sid, novo = _sessao_de(request)
-    if not sessao.resultado:
+async def exportar_execucao_pdf(
+    dados: str = Form(...),
+    evidencias_meta: str = Form("[]"),
+    files: List[UploadFile] = File(default=[]),
+):
+    try:
+        payload = json.loads(dados)
+        meta = json.loads(evidencias_meta)
+        assert isinstance(payload, dict) and isinstance(meta, list)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Dados da execução inválidos.")
+
+    casos_brutos = payload.get("casos_teste") or []
+    if not isinstance(casos_brutos, list) or not casos_brutos:
         raise HTTPException(status_code=400, detail="Gere a modelagem antes de exportar a execução dos testes.")
+    casos = [_caso_seguro(c) for c in casos_brutos[:MAX_CTS_PDF] if isinstance(c, dict)]
+    ids_validos = {c["ct_id"] for c in casos}
 
     avaliacoes = {}
-    for ct_id, a in ((payload or {}).get("avaliacoes") or {}).items():
-        if not isinstance(a, dict):
-            continue
-        status = a.get("status") if a.get("status") in STATUS_EXECUCAO else "pendente"
-        avaliacoes[str(ct_id)] = {"status": status, "comments": str(a.get("comments") or "")[:500]}
+    for ct_id, a in (payload.get("avaliacoes") or {}).items():
+        if isinstance(a, dict):
+            status = a.get("status") if a.get("status") in STATUS_EXECUCAO else "pendente"
+            avaliacoes[str(ct_id)] = {"status": status, "comments": _texto(a.get("comments"), 500)}
 
+    if len(files) != len(meta):
+        raise HTTPException(status_code=400, detail="Lista de evidências inconsistente.")
+    evidencias = {}
+    total = 0
+    for arq, m in zip(files, meta):
+        ct_id = str((m or {}).get("ct_id", ""))
+        nome = _nome_seguro((m or {}).get("nome") or arq.filename)
+        ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+        if ct_id not in ids_validos or ext not in EVID_EXTENSOES:
+            raise HTTPException(status_code=400, detail=f"Evidência '{nome}' inválida (CT ou tipo não permitido).")
+        conteudo = await arq.read()
+        total += len(conteudo)
+        lista = evidencias.setdefault(ct_id, [])
+        if len(conteudo) > EVID_MAX_ARQUIVO or len(lista) >= EVID_MAX_POR_CT or total > EVID_MAX_TOTAL:
+            raise HTTPException(status_code=400, detail=f"Evidência '{nome}' excede os limites de tamanho/quantidade.")
+        lista.append({"nome": nome, "dados": conteudo})
+
+    projeto = {
+        "projeto_nome": _texto(payload.get("projeto_nome"), 300),
+        "jira_ivr": _texto(payload.get("jira_ivr"), 100),
+        "casos_teste": casos,
+    }
     try:
-        pdf_bytes = pdf_execucao.gerar_pdf_execucao(sessao.resultado, sessao.evidencias, avaliacoes)
+        pdf_bytes = pdf_execucao.gerar_pdf_execucao(projeto, evidencias, avaliacoes)
     except Exception as e:
         _log_erro("Erro em gerar_pdf_execucao", e)
         raise HTTPException(
@@ -519,14 +513,12 @@ def exportar_execucao_pdf(request: Request, payload: dict = Body(default={})):
             detail=f"Erro ao gerar o PDF: {type(e).__name__}: {e}. Detalhes em {_BACKEND_LOG}",
         )
 
-    ivr = str(sessao.resultado.get("jira_ivr") or "").replace("/", "_").replace(" ", "")
-    resp = StreamingResponse(
+    ivr = re.sub(r"[^A-Za-z0-9_-]", "", projeto["jira_ivr"])
+    return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=Execucao_dos_Testes_{ivr or 'URA'}.pdf"},
     )
-    _aplicar_cookie_se_novo(resp, sid, novo)
-    return resp
 
 
 @app.get("/api/status-servidor")

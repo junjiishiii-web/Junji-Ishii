@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261006" />
+  <link rel="stylesheet" href="style.css?v=20261007" />
+  <script>
+    try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
+  </script>
 </head>
 <body>
 
@@ -210,14 +213,20 @@
           <h3 class="section-title" style="margin:0 0 4px;">Execução dos Testes</h3>
           <p class="exec-nota">
             Classifique cada CT, informe o bug aberto e anexe as evidências (.txt, .log, imagens, PDF…; até 5&nbsp;MB cada,
-            30&nbsp;MB no total). As evidências ficam na sessão — exporte o PDF antes de fechar. Gerar uma nova modelagem
-            limpa as evidências.
+            30&nbsp;MB no total). <strong>Tudo é salvo automaticamente neste navegador</strong>: F5, fechar a aba ou voltar
+            amanhã não perde nada. Só o botão <em>Nova Modelagem</em> apaga. Em outro computador ou ao limpar os dados do
+            navegador o trabalho não acompanha — use <em>Exportar PDF</em> como registro.
           </p>
         </div>
         <div class="exec-acoes">
           <span id="execResumo" class="exec-resumo"></span>
           <button class="btn-export-pdf" id="btnExportPdf" onclick="exportarExecucaoPDF()">📄 Exportar PDF</button>
         </div>
+      </div>
+      <div class="exec-progresso">
+        <div class="exec-barra" id="execBarra"></div>
+        <div class="exec-legenda" id="execLegenda"></div>
+        <div class="exec-salvo" id="execSalvo"></div>
       </div>
       <div id="execucaoContainer"></div>
     </div>
@@ -340,14 +349,18 @@
       formData1.append('file', files[0]);
       await _enviarArquivo(`${API}/api/upload-spec`, formData1);
       specLoaded = true;
+      servidorPrecisaReenvio = false;
+      guardarEntrada('arq_spec', files[0]);
 
       if (files[1]) {
         const formData2 = new FormData();
         formData2.append('file', files[1]);
         await _enviarArquivo(`${API}/api/upload-spec-empresas`, formData2);
         specEmpresasLoaded = true;
+        guardarEntrada('arq_spec_emp', files[1]);
       } else {
         specEmpresasLoaded = false;
+        apagarEntrada('arq_spec_emp');
       }
       label.textContent = files.length === 2
         ? `✓ ${files[0].name}  +  ✓ ${files[1].name} (ClaroEmpresas)`
@@ -371,6 +384,7 @@
     try {
       await _enviarArquivo(`${API}/api/upload-eep`, formData);
       scopeLoaded = true;
+      guardarEntrada('arq_eep', file);
       label.textContent = `✓ ${file.name}`;
     } catch(err) {
       scopeLoaded = false;
@@ -394,7 +408,12 @@
     atualizarBarraProgresso(0, null);
 
     try {
-      const respInicio = await fetch(`${API}/api/iniciar-modelagem?tipo_a=${tipo_a}&ivr_code=${ivrCode}`, { method: "POST", credentials: "same-origin" });
+      if (servidorPrecisaReenvio) await reenviarEntradasSalvas();
+      const urlInicio = `${API}/api/iniciar-modelagem?tipo_a=${tipo_a}&ivr_code=${ivrCode}`;
+      let respInicio = await fetch(urlInicio, { method: "POST", credentials: "same-origin" });
+      if (respInicio.status === 400 && await reenviarEntradasSalvas()) {
+        respInicio = await fetch(urlInicio, { method: "POST", credentials: "same-origin" });
+      }
       const resInicio = await respInicio.json().catch(() => null);
       if (!respInicio.ok) {
         alert((resInicio && (resInicio.detail || resInicio.erro)) || `Erro HTTP ${respInicio.status} ao iniciar a modelagem.`);
@@ -426,7 +445,9 @@
       if (!res) { alert("O servidor respondeu algo que não é JSON válido."); return; }
 
       cacheModelagem = res;
+      await iniciarTrabalhoSalvo(res);
       renderizarWorkspaceQA(res);
+      switchExcelTab('tabCapa', document.querySelector('#tabBar .tab-btn'));
     } catch(err) {
       alert("Erro ao cruzar as documentações no servidor: " + (err && err.message ? err.message : err));
     } finally {
@@ -440,18 +461,63 @@
     document.querySelectorAll('.sheet-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(tabId).classList.add('active');
+    abaAtiva = tabId;
+    agendarSalvarEstado();
   }
 
-  function voltarParaSplash() {
+  async function voltarParaSplash() {
+    if (cacheModelagem) {
+      const ok = confirm(
+        'Iniciar uma nova modelagem APAGA o trabalho salvo neste navegador (status, bugs e evidências dos CTs).\n\n' +
+        'Se precisar guardar o registro, clique em Cancelar e use "Exportar PDF" na aba Execução dos Testes antes.\n\n' +
+        'Deseja continuar e apagar?'
+      );
+      if (!ok) return;
+    }
+    await limparTrabalhoSalvo();
+    cacheModelagem = null;
+    avaliacoesQA = {};
+    evidenciasPorCT = {};
     document.getElementById('appPage').classList.remove('visible');
     document.getElementById('landingPage').style.display = 'flex';
   }
 
   /* ─── exportar xlsx ────────────────────────────────────── */
-  function baixarPlanilhaExcelQA() {
-    const tipo_a = document.getElementById('projetoTipoSelect').value;
-    const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
-    window.location.href = `${API}/api/exportar-testes?tipo_a=${tipo_a}&ivr_code=${ivrCode}`;
+  async function baixarPlanilhaExcelQA() {
+    const btn = document.getElementById('btnBaixarPlanilha');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Gerando…';
+    try {
+      const tipo_a = document.getElementById('projetoTipoSelect').value;
+      const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
+      const url = `${API}/api/exportar-testes?tipo_a=${tipo_a}&ivr_code=${ivrCode}`;
+      if (servidorPrecisaReenvio) await reenviarEntradasSalvas();
+      let resp = await fetch(url, { credentials: 'same-origin' });
+      // O servidor pode ter reiniciado/dormido e perdido a SPEC/EEP da sessão:
+      // reenvia as cópias guardadas neste navegador e tenta de novo.
+      if (resp.status === 400 && await reenviarEntradasSalvas()) resp = await fetch(url, { credentials: 'same-origin' });
+      if (!resp.ok) {
+        const res = await resp.json().catch(() => null);
+        throw new Error((res && (res.detail || res.erro)) || `Erro HTTP ${resp.status}`);
+      }
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^";]+)"?/);
+      const nome = m ? m[1] : 'Plano_de_Testes_URA.xlsx';
+      const blobUrl = URL.createObjectURL(await resp.blob());
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+    } catch (err) {
+      alert('Erro ao exportar o xlsx: ' + (err && err.message ? err.message : err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
   }
 
   /* ─── salvar avaliações ────────────────────────────────── */
@@ -470,18 +536,236 @@
         if (inp && inp !== document.activeElement) inp.value = valor;
       });
     }
+    agendarSalvarEstado();
   }
 
-  /* ─── Execução dos testes: resumo, evidências e exportação em PDF ─── */
+  /* ─── Persistência no navegador (IndexedDB) ───────────────
+     O servidor gratuito dorme/reinicia e perderia tudo; por isso o trabalho
+     (modelagem, status, bugs, evidências e os arquivos de entrada) fica salvo
+     NO NAVEGADOR de quem executa. Só "Nova Modelagem" apaga. */
+  let abaAtiva = 'tabCapa';
+  let servidorPrecisaReenvio = false;
+  let _dbPromessa = null;
+  let _timerSalvar = null;
+
+  function abrirDB() {
+    if (!_dbPromessa) {
+      _dbPromessa = new Promise((resolve, reject) => {
+        if (!window.indexedDB) return reject(new Error('IndexedDB indisponível'));
+        const rq = indexedDB.open('ModelerAssistant', 1);
+        rq.onupgradeneeded = () => {
+          const db = rq.result;
+          db.createObjectStore('estado');
+          db.createObjectStore('evidencias', { keyPath: 'chave' });
+        };
+        rq.onsuccess = () => resolve(rq.result);
+        rq.onerror = () => reject(rq.error);
+        rq.onblocked = () => reject(new Error('Banco bloqueado por outra aba'));
+      });
+    }
+    return _dbPromessa;
+  }
+  function _tx(store, modo, fn) {
+    return abrirDB().then(db => new Promise((resolve, reject) => {
+      const t = db.transaction(store, modo);
+      const rq = fn(t.objectStore(store));
+      t.oncomplete = () => resolve(rq ? rq.result : undefined);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    }));
+  }
+  const dbPut = (store, valor, chave) => _tx(store, 'readwrite', st => (chave === undefined ? st.put(valor) : st.put(valor, chave)));
+  const dbGet = (store, chave) => _tx(store, 'readonly', st => st.get(chave));
+  const dbGetAll = (store) => _tx(store, 'readonly', st => st.getAll());
+  const dbDelete = (store, chave) => _tx(store, 'readwrite', st => st.delete(chave));
+  const dbClear = (store) => _tx(store, 'readwrite', st => st.clear());
+
+  function _flagTrabalho(ligado) {
+    try { localStorage.setItem('modeler_tem_trabalho', ligado ? '1' : '0'); } catch (e) {}
+  }
+
+  function _textoSalvo(texto, alerta) {
+    const el = document.getElementById('execSalvo');
+    if (!el) return;
+    el.textContent = texto;
+    el.classList.toggle('alerta', !!alerta);
+  }
+
+  // Executa uma gravação; se o navegador não permitir (modo privado, cota), avisa.
+  async function persistir(fn) {
+    try {
+      await fn();
+      const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      _textoSalvo(`💾 Salvo neste navegador às ${hora}`, false);
+      return true;
+    } catch (err) {
+      console.warn('Falha ao salvar no navegador:', err);
+      _textoSalvo('⚠️ Não foi possível salvar neste navegador (modo privado ou sem espaço). Exporte o PDF antes de fechar.', true);
+      return false;
+    }
+  }
+
+  function agendarSalvarEstado() {
+    if (!cacheModelagem) return;
+    clearTimeout(_timerSalvar);
+    _timerSalvar = setTimeout(salvarEstadoAgora, 250);
+  }
+  async function salvarEstadoAgora() {
+    if (!cacheModelagem) return;
+    clearTimeout(_timerSalvar);
+    await persistir(async () => {
+      await dbPut('estado', JSON.parse(JSON.stringify(avaliacoesQA)), 'avaliacoes');
+      await dbPut('estado', {
+        aba: abaAtiva,
+        tipo_a: document.getElementById('projetoTipoSelect').value,
+        ivr: document.getElementById('ivrCodeInput').value.trim(),
+      }, 'ui');
+    });
+  }
+  // Não perde a última digitação se a pessoa der F5 / fechar logo em seguida.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') salvarEstadoAgora(); });
+  window.addEventListener('pagehide', () => { salvarEstadoAgora(); });
+
+  async function iniciarTrabalhoSalvo(res) {
+    avaliacoesQA = {};
+    evidenciasPorCT = {};
+    await limparTrabalhoSalvo();
+    await persistir(async () => {
+      await dbPut('estado', res, 'resultado');
+      _flagTrabalho(true);
+    });
+    abaAtiva = 'tabCapa';
+    await salvarEstadoAgora();
+  }
+
+  // Apaga o trabalho de execução (mantém só os arquivos de entrada SPEC/EEP).
+  async function limparTrabalhoSalvo() {
+    _flagTrabalho(false);
+    try {
+      await dbDelete('estado', 'resultado');
+      await dbDelete('estado', 'avaliacoes');
+      await dbDelete('estado', 'ui');
+      await dbClear('evidencias');
+    } catch (err) {
+      console.warn('Falha ao limpar o trabalho salvo:', err);
+    }
+  }
+
+  async function guardarEntrada(chave, arquivo) {
+    await persistir(() => dbPut('estado', { nome: arquivo.name, blob: arquivo }, chave));
+  }
+  async function apagarEntrada(chave) {
+    try { await dbDelete('estado', chave); } catch (e) {}
+  }
+  // Reenvia ao servidor as cópias dos arquivos guardadas no navegador (o servidor
+  // pode ter dormido/reiniciado e perdido a SPEC/EEP da sessão).
+  async function reenviarEntradasSalvas() {
+    try {
+      const spec = await dbGet('estado', 'arq_spec');
+      const emp = await dbGet('estado', 'arq_spec_emp');
+      const eep = await dbGet('estado', 'arq_eep');
+      if (!spec || !eep) return false;
+      const enviar = async (rota, item) => {
+        const fd = new FormData();
+        fd.append('file', item.blob, item.nome);
+        await _enviarArquivo(`${API}${rota}`, fd);
+      };
+      await enviar('/api/upload-spec', spec);
+      if (emp) await enviar('/api/upload-spec-empresas', emp);
+      await enviar('/api/upload-eep', eep);
+      servidorPrecisaReenvio = false;
+      return true;
+    } catch (err) {
+      console.warn('Falha ao reenviar as entradas salvas:', err);
+      return false;
+    }
+  }
+
+  async function restaurarTrabalhoSalvo() {
+    try {
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+      // Arquivos de entrada: a tela inicial volta a mostrar o que foi carregado.
+      const spec = await dbGet('estado', 'arq_spec');
+      const emp = await dbGet('estado', 'arq_spec_emp');
+      const eep = await dbGet('estado', 'arq_eep');
+      if (spec) {
+        specLoaded = true;
+        specEmpresasLoaded = !!emp;
+        const lbl = document.getElementById('specNameLabel');
+        lbl.textContent = emp ? `✓ ${spec.nome}  +  ✓ ${emp.nome} (ClaroEmpresas)` : `✓ ${spec.nome}`;
+        lbl.style.display = 'block';
+        servidorPrecisaReenvio = true;
+      }
+      if (eep) {
+        scopeLoaded = true;
+        const lbl = document.getElementById('scopeNameLabel');
+        lbl.textContent = `✓ ${eep.nome}`;
+        lbl.style.display = 'block';
+        servidorPrecisaReenvio = true;
+      }
+
+      const res = await dbGet('estado', 'resultado');
+      if (!res) return;
+      avaliacoesQA = (await dbGet('estado', 'avaliacoes')) || {};
+      const ui = (await dbGet('estado', 'ui')) || {};
+      if (ui.tipo_a) document.getElementById('projetoTipoSelect').value = ui.tipo_a;
+      if (ui.ivr) document.getElementById('ivrCodeInput').value = ui.ivr;
+
+      cacheModelagem = res;
+      renderizarWorkspaceQA(res);
+
+      const salvas = (await dbGetAll('evidencias')).sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0));
+      salvas.forEach(e => {
+        (evidenciasPorCT[e.ct_id] = evidenciasPorCT[e.ct_id] || []).push(
+          { id: e.id, nome: e.nome, tamanho: e.tamanho, tipo: e.tipo, blob: e.blob }
+        );
+      });
+      Object.keys(evidenciasPorCT).forEach(renderEvidencias);
+      atualizarResumoExecucao();
+
+      if (ui.aba) {
+        const btn = [...document.querySelectorAll('#tabBar .tab-btn')]
+          .find(b => (b.getAttribute('onclick') || '').includes(`'${ui.aba}'`));
+        if (btn) switchExcelTab(ui.aba, btn);
+      }
+      _textoSalvo('💾 Trabalho restaurado deste navegador', false);
+    } catch (err) {
+      console.warn('Não foi possível restaurar o trabalho salvo:', err);
+    } finally {
+      document.documentElement.classList.remove('restaurando');
+    }
+  }
+
+  /* ─── Execução dos testes: barra de evolução, evidências e PDF ─── */
   let evidenciasPorCT = {};
+
+  const _STATUS_ROTULO = { ok: 'OK', nok: 'Não OK', blocked: 'Bloqueado', pendente: 'Pendente' };
+
+  function _pct(n, total) {
+    const v = total ? (n * 100) / total : 0;
+    return (Math.round(v * 10) / 10).toString().replace('.', ',');
+  }
 
   function atualizarResumoExecucao() {
     if (!cacheModelagem) return;
-    const cont = { pendente: 0, ok: 0, nok: 0, blocked: 0 };
+    const total = cacheModelagem.casos_teste.length;
+    const cont = { ok: 0, nok: 0, blocked: 0, pendente: 0 };
     cacheModelagem.casos_teste.forEach(c => { cont[(avaliacoesQA[c.ct_id] || {}).status || 'pendente']++; });
+
+    const ordem = ['ok', 'nok', 'blocked', 'pendente'];
+    document.getElementById('execBarra').innerHTML = ordem
+      .filter(k => cont[k] > 0)
+      .map(k => `<div class="seg ${k}" style="width:${(cont[k] * 100) / total}%"
+        data-tip="${_STATUS_ROTULO[k]}: ${cont[k]} de ${total} CTs (${_pct(cont[k], total)}%)"></div>`)
+      .join('');
+    const executados = total - cont.pendente;
+    document.getElementById('execLegenda').innerHTML =
+      ordem.map(k => `<span class="leg ${k}"><b>${cont[k]}</b> ${_STATUS_ROTULO[k].toUpperCase()}</span>`).join('') +
+      `<span class="leg-total">${executados} de ${total} executados (${_pct(executados, total)}%)</span>`;
+
     const totalEvid = Object.values(evidenciasPorCT).reduce((n, l) => n + l.length, 0);
-    document.getElementById('execResumo').textContent =
-      `🟡 ${cont.pendente} · 🟢 ${cont.ok} · 🔴 ${cont.nok} · ⚠️ ${cont.blocked}  |  📎 ${totalEvid} evidência(s)`;
+    document.getElementById('execResumo').textContent = `📎 ${totalEvid} evidência(s)`;
   }
 
   function formatarTamanho(n) {
@@ -497,7 +781,8 @@
     lista.innerHTML = itens.length
       ? itens.map(e => `
           <div class="evid-item">
-            <a class="evid-link" href="${API}/api/evidencias/${encodeURIComponent(ctId)}/${encodeURIComponent(e.id)}" title="Clique para baixar">📎 ${escHtml(e.nome)}</a>
+            <a class="evid-link" href="#" title="Clique para baixar"
+               onclick="baixarEvidencia('${escHtml(ctId)}','${escHtml(e.id)}'); return false;">📎 ${escHtml(e.nome)}</a>
             <span class="evid-tam">${formatarTamanho(e.tamanho)}</span>
             <button class="evid-rem" title="Remover" onclick="removerEvidencia('${escHtml(ctId)}','${escHtml(e.id)}')">✕</button>
           </div>`).join('')
@@ -505,34 +790,50 @@
     atualizarResumoExecucao();
   }
 
+  const EVID_EXT = ['txt', 'log', 'csv', 'json', 'xml', 'png', 'jpg', 'jpeg', 'pdf', 'docx', 'xlsx'];
+  const EVID_MAX_ARQ = 5 * 1024 * 1024;
+  const EVID_MAX_CT = 10;
+  const EVID_MAX_TOTAL = 30 * 1024 * 1024;
+
   async function anexarEvidencias(ctId, input) {
     const arquivos = Array.from(input.files || []);
+    input.value = '';
     if (!arquivos.length) return;
-    const fd = new FormData();
-    arquivos.forEach(a => fd.append('files', a));
-    try {
-      const resp = await fetch(`${API}/api/evidencias/${encodeURIComponent(ctId)}`, { method: 'POST', body: fd, credentials: 'same-origin' });
-      const res = await resp.json().catch(() => null);
-      if (!resp.ok) throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
-      evidenciasPorCT[ctId] = res.evidencias;
-      renderEvidencias(ctId);
-    } catch (err) {
-      alert('Erro ao anexar evidência: ' + (err && err.message ? err.message : err));
-    } finally {
-      input.value = '';
+    const lista = (evidenciasPorCT[ctId] = evidenciasPorCT[ctId] || []);
+    const rejeitados = [];
+    for (const arq of arquivos) {
+      const ext = (arq.name.split('.').pop() || '').toLowerCase();
+      const totalBytes = Object.values(evidenciasPorCT).flat().reduce((n, e) => n + e.tamanho, 0);
+      if (!EVID_EXT.includes(ext)) { rejeitados.push(`${arq.name}: tipo não permitido (use ${EVID_EXT.join(', ')})`); continue; }
+      if (arq.size > EVID_MAX_ARQ) { rejeitados.push(`${arq.name}: passa de 5 MB`); continue; }
+      if (lista.length >= EVID_MAX_CT) { rejeitados.push(`${arq.name}: máximo de ${EVID_MAX_CT} evidências por CT`); continue; }
+      if (totalBytes + arq.size > EVID_MAX_TOTAL) { rejeitados.push(`${arq.name}: limite de 30 MB de evidências no total`); continue; }
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      const ev = { id, nome: arq.name, tamanho: arq.size, tipo: arq.type, blob: arq };
+      lista.push(ev);
+      await persistir(() => dbPut('evidencias', { chave: ctId + '|' + id, ct_id: ctId, criadoEm: Date.now(), ...ev }));
     }
+    renderEvidencias(ctId);
+    if (rejeitados.length) alert('Algumas evidências não foram anexadas:\n\n' + rejeitados.join('\n'));
   }
 
-  async function removerEvidencia(ctId, evidId) {
-    try {
-      const resp = await fetch(`${API}/api/evidencias/${encodeURIComponent(ctId)}/${encodeURIComponent(evidId)}`, { method: 'DELETE', credentials: 'same-origin' });
-      const res = await resp.json().catch(() => null);
-      if (!resp.ok) throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
-      evidenciasPorCT[ctId] = res.evidencias;
-      renderEvidencias(ctId);
-    } catch (err) {
-      alert('Erro ao remover evidência: ' + (err && err.message ? err.message : err));
-    }
+  function baixarEvidencia(ctId, evId) {
+    const ev = (evidenciasPorCT[ctId] || []).find(e => e.id === evId);
+    if (!ev) return;
+    const url = URL.createObjectURL(ev.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ev.nome;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  async function removerEvidencia(ctId, evId) {
+    evidenciasPorCT[ctId] = (evidenciasPorCT[ctId] || []).filter(e => e.id !== evId);
+    await persistir(() => dbDelete('evidencias', ctId + '|' + evId));
+    renderEvidencias(ctId);
   }
 
   async function exportarExecucaoPDF() {
@@ -541,21 +842,29 @@
     btn.disabled = true;
     btn.textContent = 'Gerando PDF…';
     try {
-      const resp = await fetch(`${API}/api/exportar-execucao-pdf`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avaliacoes: avaliacoesQA }),
-      });
+      const fd = new FormData();
+      fd.append('dados', JSON.stringify({
+        projeto_nome: cacheModelagem.projeto_nome,
+        jira_ivr: cacheModelagem.jira_ivr,
+        casos_teste: cacheModelagem.casos_teste,
+        avaliacoes: avaliacoesQA,
+      }));
+      const meta = [];
+      Object.keys(evidenciasPorCT).forEach(ct => evidenciasPorCT[ct].forEach(ev => {
+        meta.push({ ct_id: ct, nome: ev.nome });
+        fd.append('files', ev.blob, ev.nome);
+      }));
+      fd.append('evidencias_meta', JSON.stringify(meta));
+
+      const resp = await fetch(`${API}/api/exportar-execucao-pdf`, { method: 'POST', body: fd, credentials: 'same-origin' });
       if (!resp.ok) {
         const res = await resp.json().catch(() => null);
         throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
       }
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(await resp.blob());
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Execucao_dos_Testes_${(cacheModelagem && cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}.pdf`;
+      a.download = `Execucao_dos_Testes_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -566,59 +875,6 @@
       btn.disabled = false;
       btn.textContent = original;
     }
-  }
-
-  /* ─── copiar steps de um CT (sem a coluna Step) p/ colar no Jira ─── */
-  function _tsvSafe(texto) {
-    return String(texto ?? '—').replace(/\r?\n/g, ' | ').trim();
-  }
-
-  function copiarStepsCT(ctId) {
-    if (!cacheModelagem) return;
-    const caso = cacheModelagem.casos_teste.find(c => c.ct_id === ctId);
-    if (!caso) return;
-
-    const linhas = [['Ação (Discar / Condição)', 'Estado', 'Resultado Esperado / Prompt']];
-    caso.steps.forEach(step => {
-      const resultado = step.resultado !== undefined ? step.resultado : step.prompt_texto;
-      const resultadoFinal = (step.prompt_id && step.prompt_id !== '—')
-        ? `ID: ${step.prompt_id} — ${_tsvSafe(resultado)}`
-        : _tsvSafe(resultado);
-      linhas.push([_tsvSafe(step.acao), _tsvSafe(step.estado), resultadoFinal]);
-    });
-    const tsv = linhas.map(cols => cols.join('\t')).join('\n');
-
-    const marcarCopiado = () => {
-      const btn = document.getElementById(`copyBtn-${ctId}`);
-      if (!btn) return;
-      const original = btn.textContent;
-      btn.textContent = '✓ Copiado!';
-      btn.classList.add('copiado');
-      setTimeout(() => { btn.textContent = original; btn.classList.remove('copiado'); }, 1500);
-    };
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(tsv).then(marcarCopiado).catch(() => _copiarViaFallback(tsv, marcarCopiado));
-    } else {
-      _copiarViaFallback(tsv, marcarCopiado);
-    }
-  }
-
-  function _copiarViaFallback(texto, aoSucesso) {
-    const ta = document.createElement('textarea');
-    ta.value = texto;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    try {
-      document.execCommand('copy');
-      aoSucesso();
-    } catch (e) {
-      alert('Não foi possível copiar automaticamente. Selecione o texto manualmente.');
-    }
-    document.body.removeChild(ta);
   }
 
   /* ─── renderizar workspace ─────────────────────────────── */
@@ -860,6 +1116,8 @@
         </table>`;
     }
   }
+
+  restaurarTrabalhoSalvo();
 </script>
 </body>
 </html>
