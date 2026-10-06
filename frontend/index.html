@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261011" />
+  <link rel="stylesheet" href="style.css?v=20261012" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -16,6 +16,8 @@
 ══════════════════════════════════════════════════════════ -->
 <div id="landingPage">
   <div class="landing-bg"></div>
+
+  <button class="btn-manual btn-manual-landing" onclick="abrirManual()">📖 Manual do usuário</button>
 
   <!-- Logo Centralizado no Bloco da Esquerda -->
   <div class="landing-logo">
@@ -78,6 +80,7 @@
       <span>Modeler Assistant</span>
     </div>
     <div class="nav-actions">
+      <button class="btn-nav btn-nav-manual" onclick="abrirManual()">📖 Manual</button>
       <button class="btn-nav btn-nav-blue" id="btnGerarModelagem" onclick="voltarParaSplash()">
         Nova Modelagem
       </button>
@@ -240,6 +243,146 @@
 </div><!-- /appPage -->
 
 <!-- Loading Overlay -->
+<!-- ══════════════════════════════════════════════════════════
+     MANUAL DO USUÁRIO (abre por cima da tela inicial ou do workspace)
+══════════════════════════════════════════════════════════ -->
+<div class="manual-overlay" id="manualOverlay" role="dialog" aria-modal="true" aria-labelledby="manualTitulo">
+  <div class="manual-janela">
+    <div class="manual-topo">
+      <h2 id="manualTitulo">📖 Manual do Usuário — Modeler Assistant</h2>
+      <button class="manual-fechar" onclick="fecharManual()" title="Fechar (Esc)">✕ Fechar</button>
+    </div>
+    <div class="manual-corpo">
+      <nav class="manual-indice" id="manualIndice">
+        <a href="#man-oque">O que é</a>
+        <a href="#man-comeco">Começando em 4 passos</a>
+        <a href="#man-arquivos">Arquivos de entrada</a>
+        <a href="#man-ivr">Código IVR</a>
+        <a href="#man-abas">As abas do resultado</a>
+        <a href="#man-execucao">Execução dos Testes</a>
+        <a href="#man-pdf">Exportar PDF e evidências</a>
+        <a href="#man-salvo">Salvamento automático</a>
+        <a href="#man-xlsx">Exportar xlsx</a>
+        <a href="#man-nova">Nova Modelagem</a>
+        <a href="#man-problemas">Problemas comuns</a>
+      </nav>
+      <div class="manual-conteudo" id="manualConteudo">
+
+        <section id="man-oque">
+          <h3>O que é</h3>
+          <p>O <strong>Modeler Assistant</strong> lê a <strong>SPEC</strong> (planilha do fluxo da URA) e o <strong>EEP</strong>
+          (documento de escopo do projeto) e monta sozinho a <strong>modelagem de testes em BDD/Gherkin</strong>: um caso de
+          teste (CT) para cada caminho alterado da versão, com os steps, os prompts esperados e os ScriptPoints (SP) a conferir.
+          Depois você usa a própria ferramenta para <strong>executar os testes</strong>, registrar status, bugs e evidências e
+          gerar um PDF final.</p>
+        </section>
+
+        <section id="man-comeco">
+          <h3>Começando em 4 passos</h3>
+          <ol>
+            <li><strong>Suba a SPEC</strong> (.xlsx) em “Procurar arquivo(s)”. Se a SPEC for dividida em duas (MERGE + ClaroEmpresas), selecione os dois arquivos de uma vez.</li>
+            <li><strong>Suba o EEP</strong> do projeto (PDF, xlsx ou docx).</li>
+            <li>Confira a opção ao lado da SPEC (<em>Alteração de SPEC</em> é o normal) e, se quiser, informe o <strong>código IVR</strong> do projeto (ex.: <code>IVR-246110</code>).</li>
+            <li>Clique em <strong>Gerar Modelagem</strong> e aguarde a barra de progresso. Ao terminar, você cai na aba <em>Geral</em> com o resultado.</li>
+          </ol>
+          <p class="manual-dica">💡 Na primeira vez do dia o servidor pode levar até ~1 minuto para acordar. É normal: espere o upload terminar (aparece “✓” com o nome do arquivo) antes de clicar em Gerar.</p>
+        </section>
+
+        <section id="man-arquivos">
+          <h3>Arquivos de entrada</h3>
+          <ul>
+            <li><strong>SPEC</strong>: planilha .xlsx com as abas dos estados da URA e as abas <code>_Versionamento_</code> e <code>_VersionamentoBI_</code>. O bloco do projeto nessas abas (e a cor da marcação) define o que mudou na versão.</li>
+            <li><strong>EEP</strong>: documento de escopo (PDF, xlsx ou docx). Dele saem o nome do projeto, as chaves sistêmicas e os VDNs de transferência.</li>
+            <li><strong>Alteração de SPEC</strong> × <strong>Transferência Pura</strong>: escolha o tipo que descreve o projeto; ele muda a forma de montar os CTs.</li>
+          </ul>
+        </section>
+
+        <section id="man-ivr">
+          <h3>Código IVR (campo opcional)</h3>
+          <ul>
+            <li><strong>Em branco</strong>: a ferramenta descobre o IVR pelo nome do projeto no EEP (ou pelo código no nome do arquivo). Mostra um aviso em <em>Revisão Necessária</em> dizendo qual usou.</li>
+            <li><strong>Preenchido</strong>: só o(s) bloco(s) desse IVR nas abas de versionamento são usados. Um mesmo IVR pode ter mais de um bloco (por exemplo, a versão inicial e uma atualização); todos entram.</li>
+            <li>Se o código informado <strong>não existe na SPEC</strong>, nenhum CT é gerado (de propósito, para não modelar estado de outro projeto). Um aviso vermelho na aba <em>Geral</em> explica o motivo e lista os IVRs encontrados na SPEC.</li>
+          </ul>
+        </section>
+
+        <section id="man-abas">
+          <h3>As abas do resultado</h3>
+          <table class="manual-tabela">
+            <tr><th>Aba</th><th>Para que serve</th></tr>
+            <tr><td><strong>Geral</strong></td><td>Projeto/IVR, total de CTs, chaves sistêmicas do EEP, um cartão por CT (mapeado ou “SP pendente”) e o histórico de alterações por estado.</td></tr>
+            <tr><td><strong>Planejamento</strong></td><td>Critérios de entrada, falha e saída da homologação.</td></tr>
+            <tr><td><strong>Marcações de BI</strong></td><td>ScriptPoints marcados na VersionamentoBI para o projeto e qual CT cobre cada um.</td></tr>
+            <tr><td><strong>Massa de Testes</strong></td><td>Tabela dos CTs com perfil/condição de entrada, contrato, avaliação e comentários.</td></tr>
+            <tr><td><strong>Legenda</strong></td><td>Cores dos blocos da modelagem e VDNs de transferência extraídos do EEP.</td></tr>
+            <tr><td><strong>Cenários (BDD)</strong></td><td>O roteiro completo de cada CT: Gherkin, pré-requisito e tabela de steps (ação, estado/prompt, resultado esperado). O botão <em>📋 Copiar</em> copia os steps do CT.</td></tr>
+            <tr><td><strong>Execução dos Testes</strong></td><td>Os mesmos CTs, prontos para executar: status, bug, evidências e barra de evolução (veja abaixo).</td></tr>
+            <tr><td><strong>Revisão Necessária</strong></td><td>Pontos que a ferramenta não conseguiu decidir sozinha (estado não encontrado, SP já existente ignorado, IVR identificado automaticamente…). Leia antes de começar a executar.</td></tr>
+          </table>
+        </section>
+
+        <section id="man-execucao">
+          <h3>Execução dos Testes</h3>
+          <ol>
+            <li>Em cada CT, escolha o <strong>Status</strong>: 🟡 Pendente, 🟢 OK, 🔴 Não OK ou ⚠️ Bloqueado.</li>
+            <li>Em <strong>Bug aberto / comentários</strong>, escreva o nome do bug (ex.: <code>QANET-1234 — descrição</code>).</li>
+            <li>Clique em <strong>＋ Anexar evidência</strong> e escolha os arquivos (.txt, .log, .csv, .json, .xml, imagens, .pdf, .docx, .xlsx).</li>
+          </ol>
+          <p><strong>Barra de evolução:</strong> fica no topo da aba e mostra a proporção de CTs por status. Passe o mouse sobre uma cor para ver a quantidade e a porcentagem.</p>
+          <p><strong>Limites das evidências:</strong> até 25 MB por arquivo, 20 arquivos e 50 MB por CT, e 500 MB no total.</p>
+          <p>O status e os comentários também aparecem (e podem ser editados) na aba <em>Massa de Testes</em>; as duas abas ficam sincronizadas.</p>
+        </section>
+
+        <section id="man-pdf">
+          <h3>Exportar PDF e evidências</h3>
+          <p>O botão <strong>📄 Exportar PDF</strong> gera o registro final: cabeçalho com a contagem de status e, para cada CT, o Gherkin, os steps, o status, o bug e a lista de evidências. Junto vem um arquivo <strong>.zip</strong> com as evidências organizadas por CT.</p>
+          <ul>
+            <li><strong>Para os links das evidências abrirem</strong>, extraia o ZIP na <strong>mesma pasta</strong> do PDF (deve ficar uma pasta <code>evidencias</code> ao lado do PDF) e abra o PDF de lá. Clique no nome azul da evidência.</li>
+            <li>O clipe 📎 dentro do PDF só funciona no Adobe Acrobat, Foxit e Firefox. No Chrome/Edge use o link ou abra os arquivos pela pasta.</li>
+            <li>Projetos grandes saem divididos em <strong>partes</strong> (<code>parte1de3</code>, <code>parte2de3</code>…). Se o navegador pedir, permita baixar vários arquivos.</li>
+            <li>O botão <strong>📦 Evidências (.zip)</strong> baixa só as evidências, sem o PDF.</li>
+          </ul>
+        </section>
+
+        <section id="man-salvo">
+          <h3>Salvamento automático</h3>
+          <p>Tudo o que você faz (status, bugs, evidências e a própria modelagem) é salvo automaticamente <strong>neste navegador</strong>. Pode apertar F5, fechar a aba ou voltar no dia seguinte: o trabalho continua de onde parou, e a mensagem “💾 Salvo neste navegador” confirma a gravação.</p>
+          <ul>
+            <li>O trabalho fica <strong>no navegador e no computador</strong> em que você fez. Em outro computador, em outro navegador ou depois de “limpar dados do site”, ele não aparece.</li>
+            <li>Por isso, exporte o <strong>PDF + ZIP</strong> como registro oficial ao terminar.</li>
+            <li>Se a modelagem foi gerada e você ainda não anexou nada, o F5 mantém tudo igual. Se você só subiu os arquivos e <em>não</em> gerou a modelagem, o F5 limpa a tela inicial.</li>
+          </ul>
+        </section>
+
+        <section id="man-xlsx">
+          <h3>Exportar xlsx</h3>
+          <p>O botão <strong>Exportar xlsx</strong> (barra de cima) baixa o plano de testes em planilha, gerado a partir da SPEC e do EEP. Ele <strong>não inclui</strong> os status e as evidências da execução — use o PDF para isso.</p>
+        </section>
+
+        <section id="man-nova">
+          <h3>Nova Modelagem</h3>
+          <p>O botão <strong>Nova Modelagem</strong> volta para a tela inicial totalmente em branco: remove os arquivos carregados, o código IVR e <strong>apaga todo o trabalho salvo</strong> (status, bugs e evidências). A ferramenta pede confirmação antes. <strong>Exporte o PDF antes</strong> se precisar do registro.</p>
+        </section>
+
+        <section id="man-problemas">
+          <h3>Problemas comuns</h3>
+          <table class="manual-tabela">
+            <tr><th>O que aconteceu</th><th>O que fazer</th></tr>
+            <tr><td>“Nenhum CT foi gerado” (aviso vermelho na aba Geral)</td><td>O IVR informado não está na SPEC, ou a SPEC/EEP são de outro projeto. Confira se o código IVR bate com o projeto; na dúvida, deixe o campo em branco. O aviso lista os IVRs que a SPEC contém.</td></tr>
+            <tr><td>“Carregue ambos os arquivos”</td><td>Espere aparecer o “✓” com o nome da SPEC e do EEP antes de clicar em Gerar.</td></tr>
+            <tr><td>Demora no primeiro acesso</td><td>O servidor dorme quando fica parado; a primeira ação do dia pode levar ~1 minuto.</td></tr>
+            <tr><td>Sumiu o que eu fiz</td><td>Verifique se está no mesmo computador e navegador, e se não clicou em Nova Modelagem nem limpou os dados do site.</td></tr>
+            <tr><td>O link/clipe da evidência não abre no PDF</td><td>Extraia o ZIP ao lado do PDF e abra o PDF de lá; no Chrome/Edge o clipe não funciona — use o link azul ou a pasta <code>evidencias</code>.</td></tr>
+            <tr><td>Evidência recusada</td><td>Confira tipo de arquivo e limites (25 MB por arquivo, 20 por CT, 50 MB por CT).</td></tr>
+          </table>
+          <p class="manual-dica">Algo diferente do esperado na modelagem? Olhe a aba <em>Revisão Necessária</em> primeiro: ela explica o que a ferramenta ignorou ou não encontrou.</p>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
   <p class="loading-text" id="loadingText">
@@ -450,6 +593,30 @@
       showLoading(false);
     }
   }
+
+  /* ─── manual do usuário ────────────────────────────────── */
+  function abrirManual(secao) {
+    document.getElementById('manualOverlay').classList.add('visible');
+    document.body.style.overflow = 'hidden';
+    const alvo = secao && document.getElementById(secao);
+    if (alvo) alvo.scrollIntoView();
+    else document.getElementById('manualConteudo').scrollTop = 0;
+  }
+  function fecharManual() {
+    document.getElementById('manualOverlay').classList.remove('visible');
+    document.body.style.overflow = '';
+  }
+  document.getElementById('manualIndice').addEventListener('click', (e) => {
+    const a = e.target.closest('a');
+    if (!a) return;
+    e.preventDefault();
+    const alvo = document.getElementById(a.getAttribute('href').slice(1));
+    if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  document.getElementById('manualOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'manualOverlay') fecharManual();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharManual(); });
 
   /* ─── switch tabs ──────────────────────────────────────── */
   function switchExcelTab(tabId, btn) {
