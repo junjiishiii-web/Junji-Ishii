@@ -30,7 +30,7 @@ HUBS_BLACKLIST = (
 )
 
 _ESTADO_NOVO_RE = re.compile(r"\bestado\s+novo\b", re.IGNORECASE)
-_REJ_SIL_RE = re.compile(r"\bREJ\b|\bSIL\b|digitou algo diferente|ficou em sil[eê]ncio", re.IGNORECASE)
+_REJ_SIL_RE = re.compile(r"\bREJ\b|\bSIL\b|\bINV\b|\bINC\b|digitou algo diferente|ficou em sil[eê]ncio", re.IGNORECASE)
 
 
 def _eh_transicao_rej_sil(condicao):
@@ -321,9 +321,13 @@ def _candidatos_prompt_transicao(spec_model, estado_nome, t):
         return
     alvo_norm = normalizar_chave(alvo)
     destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
-    donos = [estado_nome]
+    # "Proximo Prompt" e o prompt tocado no estado de DESTINO (ex.: "Certo_A"
+    # existe em TransferMaisProtocolo, "MaxErro_DTMF" em Transfer); quando a
+    # transicao fica no mesmo estado (REJ1, SIL1...), o dono e o proprio estado.
+    donos = []
     if destino_real and destino_real != estado_nome:
         donos.append(destino_real)
+    donos.append(estado_nome)
     for dono in donos:
         prompt = _achar_prompt_por_id(spec_model["estados"].get(dono, {}).get("prompts", []), alvo_norm)
         if prompt:
@@ -370,6 +374,72 @@ def _chave_grupo_retentativa(t):
     return tuple(normalizar_chave(p) for p in path[:-1]), int(m.group(1))
 
 
+_INC_RE = re.compile(r"\bINC\b|incomplet", re.IGNORECASE)
+_INV_RE = re.compile(r"\bINV\b", re.IGNORECASE)
+
+
+def _rotulo_tipo_retentativa(condicao):
+    if _SIL_RE.search(condicao):
+        return "Ficar em silêncio (SIL)"
+    if _INC_RE.search(condicao):
+        return "Digitar sequência incompleta (INC)"
+    if _INV_RE.search(condicao):
+        return "Digitar valor inválido (INV)"
+    return "Digitar opção inválida (REJ)"
+
+
+_INTERATIVO_RE = re.compile(r"\bdtmf\b|digitou|tecla", re.IGNORECASE)
+_ELSE_RE = re.compile(r"\belse\b|caso contr[aá]rio", re.IGNORECASE)
+
+
+def _steps_jornada(spec_model, estado_atual, visitados, limite=6):
+    """Continua a jornada conforme a SPEC a partir do estado em que a
+    chamada acabou de cair (ex.: depois da ultima tentativa de REJ/SIL/
+    INV/INC que sai pra outro estado): segue a saida automatica de cada
+    estado (preferindo o "Else"/caso padrao) ate chegar num fim — _End_, um
+    estado sem saida — ou num estado que aguarda a escolha do usuario
+    (menu/DTMF/REJ/SIL), onde a jornada passa a depender do que ele digitar."""
+    steps = []
+    atual = estado_atual
+    for _ in range(limite):
+        dados = spec_model["estados"].get(atual)
+        if not dados or atual.lower() == "_end_":
+            break
+        transicoes = dados.get("transicoes", [])
+        if any(_eh_transicao_rej_sil(t["condicao"]) or _INTERATIVO_RE.search(t["condicao"]) for t in transicoes):
+            break
+        candidatos = []
+        for t in transicoes:
+            destino = resolver_destino(spec_model["mapa_rotas"], t["destino"])
+            if destino and destino != atual and destino not in visitados:
+                candidatos.append((t, destino))
+        if not candidatos:
+            break
+        t, destino = next((c for c in candidatos if _ELSE_RE.search(c[0]["condicao"])), candidatos[0])
+        sp_t = _sp_efetivo_transicao(spec_model, atual, t)
+        prompt, _dono = next(_candidatos_prompt_transicao(spec_model, atual, t), (None, None))
+        prompt_id = prompt["id"] if prompt else "—"
+        prompt_texto = prompt["texto"] if prompt else "—"
+        if sp_t:
+            resultado = f"{sp_t[0]}={sp_t[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
+        else:
+            resultado = prompt_texto
+        steps.append(
+            {
+                "step_num": 0,
+                "acao": f"Seguir a jornada ({t['condicao']})",
+                "estado": destino,
+                "prompt_id": prompt_id,
+                "prompt_texto": prompt_texto,
+                "sp": sp_t,
+                "resultado": resultado,
+            }
+        )
+        visitados.add(destino)
+        atual = destino
+    return steps
+
+
 def _step_retentativa(spec_model, estado_nome, t, sp_t):
     """Step de uma tentativa de REJ/SIL: mostra o prompt de retentativa
     (REJ1, REJ2, SIL1, SIL2, ... ou o prompt de saida da ultima tentativa),
@@ -379,8 +449,7 @@ def _step_retentativa(spec_model, estado_nome, t, sp_t):
     prompt_texto = prompt["texto"] if prompt else "—"
     path = t.get("path") or [t["condicao"]]
     folha = path[-1]
-    silencio = bool(_SIL_RE.search(t["condicao"]))
-    acao = f"{'Ficar em silêncio (SIL)' if silencio else 'Digitar opção inválida (REJ)'} — {folha}"
+    acao = f"{_rotulo_tipo_retentativa(t['condicao'])} — {folha}"
 
     destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
     destino_txt = f"segue para {destino_real}" if destino_real and destino_real != estado_nome else "permanece no estado"
@@ -837,9 +906,12 @@ class GeradorCT:
                     destino_hop = resolver_destino(self.spec_model["mapa_rotas"], t["destino"])
                     caminho_completo = caminho + ([destino_hop] if destino_hop and destino_hop != caminho[-1] else [])
                     alteracao_txt = f"{est['alteracao']} — condição: {t['condicao']}" if est.get("alteracao") else t["condicao"]
+                    steps_jornada = []
+                    if _eh_transicao_rej_sil(t["condicao"]) and destino_hop and destino_hop != nome_real:
+                        steps_jornada = _steps_jornada(self.spec_model, destino_hop, set(caminho_completo))
                     self._add_ct(
                         bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho_completo,
-                        sp_final=sp_t, restricoes=restr,
+                        sp_final=sp_t, restricoes=restr, steps_extra=steps_jornada,
                         transicao_final=t if len(caminho_completo) > len(caminho) else None,
                     )
                     continue
@@ -868,6 +940,13 @@ class GeradorCT:
                     _step_retentativa(self.spec_model, nome_real, t, sp_t)
                     for t, (sp_t, _status) in zip(tentativas, avaliacoes)
                 ]
+                # Se a ultima tentativa sai pra outro estado (Transfer, menu,
+                # _End_...), a jornada segue conforme a SPEC ate o fim.
+                destino_saida = resolver_destino(self.spec_model["mapa_rotas"], tentativas[-1].get("destino"))
+                if destino_saida and destino_saida != nome_real:
+                    steps_extra += _steps_jornada(
+                        self.spec_model, destino_saida, set(caminho) | {nome_real, destino_saida}
+                    )
                 sps_escada = []
                 for sp_t, _status in avaliacoes:
                     if sp_t and sp_t not in sps_escada:
