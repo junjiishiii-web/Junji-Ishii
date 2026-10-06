@@ -1224,6 +1224,59 @@
     }
   }
 
+  /* ─── copiar steps de um CT (sem a coluna Step) p/ colar no Jira ─── */
+  function _tsvSafe(texto) {
+    return String(texto ?? '—').replace(/\r?\n/g, ' | ').trim();
+  }
+
+  function copiarStepsCT(ctId) {
+    if (!cacheModelagem) return;
+    const caso = cacheModelagem.casos_teste.find(c => c.ct_id === ctId);
+    if (!caso) return;
+
+    const linhas = [['Ação (Discar / Condição)', 'Estado', 'Resultado Esperado / Prompt']];
+    caso.steps.forEach(step => {
+      const resultado = step.resultado !== undefined ? step.resultado : step.prompt_texto;
+      const resultadoFinal = (step.prompt_id && step.prompt_id !== '—')
+        ? `ID: ${step.prompt_id} — ${_tsvSafe(resultado)}`
+        : _tsvSafe(resultado);
+      linhas.push([_tsvSafe(step.acao), _tsvSafe(step.estado), resultadoFinal]);
+    });
+    const tsv = linhas.map(cols => cols.join('\t')).join('\n');
+
+    const marcarCopiado = () => {
+      const btn = document.getElementById(`copyBtn-${ctId}`);
+      if (!btn) return;
+      const original = btn.textContent;
+      btn.textContent = '✓ Copiado!';
+      btn.classList.add('copiado');
+      setTimeout(() => { btn.textContent = original; btn.classList.remove('copiado'); }, 1500);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tsv).then(marcarCopiado).catch(() => _copiarViaFallback(tsv, marcarCopiado));
+    } else {
+      _copiarViaFallback(tsv, marcarCopiado);
+    }
+  }
+
+  function _copiarViaFallback(texto, aoSucesso) {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      aoSucesso();
+    } catch (e) {
+      alert('Não foi possível copiar automaticamente. Selecione o texto manualmente.');
+    }
+    document.body.removeChild(ta);
+  }
+
   /* ─── renderizar workspace ─────────────────────────────── */
   function renderizarWorkspaceQA(data) {
     // Esconde a tela de landing e exibe o painel
