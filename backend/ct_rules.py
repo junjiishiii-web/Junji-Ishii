@@ -291,16 +291,43 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
     return [], perfil_entrada
 
 
+def _achar_prompt_por_id(prompts, alvo_norm):
+    # Igualdade exata primeiro: um alvo curto como "INI" nao pode casar por
+    # substring com outro prompt tipo "DTMF_INI_MAXSIL" que venha antes.
+    exato = next((p for p in prompts if normalizar_chave(p["id"]) == alvo_norm), None)
+    if exato:
+        return exato
+    return next((p for p in prompts if alvo_norm in normalizar_chave(p["id"])), None)
+
+
 def _match_prompt(state_data, prox_prompt_target):
     prompts = state_data.get("prompts", [])
     if not prompts:
         return None
     if prox_prompt_target and prox_prompt_target.lower() not in ("", "nan", "- sem prompt -"):
-        alvo_norm = normalizar_chave(prox_prompt_target)
-        casado = next((p for p in prompts if alvo_norm in normalizar_chave(p["id"])), None)
+        casado = _achar_prompt_por_id(prompts, normalizar_chave(prox_prompt_target))
         if casado:
             return casado
     return prompts[0]
+
+
+def _candidatos_prompt_transicao(spec_model, estado_nome, t):
+    """Prompts que a transicao realmente referencia via "Proximo Prompt":
+    primeiro no estado atual, depois (se for outro estado) no de destino —
+    sem o fallback de prompts[0] do _match_prompt (que e so pra escolher o
+    que mostrar num step generico, nao pra atribuir prompt/SP)."""
+    alvo = (t.get("prox_prompt") or "").strip()
+    if not alvo or alvo.lower() in ("nan", "- sem prompt -"):
+        return
+    alvo_norm = normalizar_chave(alvo)
+    destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
+    donos = [estado_nome]
+    if destino_real and destino_real != estado_nome:
+        donos.append(destino_real)
+    for dono in donos:
+        prompt = _achar_prompt_por_id(spec_model["estados"].get(dono, {}).get("prompts", []), alvo_norm)
+        if prompt:
+            yield prompt, dono
 
 
 def _sp_efetivo_transicao(spec_model, estado_nome, t):
@@ -318,33 +345,58 @@ def _sp_efetivo_transicao(spec_model, estado_nome, t):
     """
     if t.get("sp"):
         return t["sp"]
-    prox_prompt_target = (t.get("prox_prompt") or "").strip()
-    if not prox_prompt_target or prox_prompt_target.lower() in ("nan", "- sem prompt -"):
-        return None
-
-    # NAO usa _match_prompt aqui de proposito: o fallback dela (devolver
-    # prompts[0] quando nao acha correspondencia) e certo pra escolher QUE
-    # prompt mostrar num step generico, mas errado pra atribuir um SP — sem
-    # match de verdade, cairia no SP do primeiro prompt da lista (ex.: o
-    # "INI") mesmo quando o prox_prompt referenciado e outro completamente
-    # diferente (ex.: um prompt de saida do estado de DESTINO, como
-    # "MaxErro_DTMF" em "Transfer"), atribuindo o SP errado por engano.
-    alvo_norm = normalizar_chave(prox_prompt_target)
-
-    def _buscar_sp(nome_estado):
-        prompts = spec_model["estados"].get(nome_estado, {}).get("prompts", [])
-        casado = next((p for p in prompts if alvo_norm in normalizar_chave(p["id"])), None)
-        return casado.get("sp") if casado else None
-
-    sp = _buscar_sp(estado_nome)
-    if sp:
-        return sp
-    # O prompt referenciado pode pertencer ao estado de DESTINO (ex.: um
-    # prompt de despedida/transferencia definido la, nao no estado atual).
-    destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
-    if destino_real and destino_real != estado_nome:
-        return _buscar_sp(destino_real)
+    for prompt, _dono in _candidatos_prompt_transicao(spec_model, estado_nome, t):
+        if prompt.get("sp"):
+            return prompt["sp"]
     return None
+
+
+_TENTATIVA_RE = re.compile(r"^\s*(\d+)\s*(?:ª|º|°|a|o)?\s*(?:vez(?:es)?|x)\s*$", re.IGNORECASE)
+_SIL_RE = re.compile(r"\bSIL\b|sil[eê]ncio", re.IGNORECASE)
+
+
+def _chave_grupo_retentativa(t):
+    """Se a transicao e a N-esima tentativa de uma escada de REJ ou SIL
+    (ex.: "Usuário digitou algo diferente (REJ) > 2ª vez"), devolve
+    (chave_do_grupo, N); senao None. As tentativas da mesma escada sao uma
+    sequencia unica de uma mesma chamada (1ª, 2ª, ... ate sair do estado) e
+    cabem no MESMO CT."""
+    path = t.get("path") or []
+    if len(path) < 2 or not _eh_transicao_rej_sil(t.get("condicao")):
+        return None
+    m = _TENTATIVA_RE.match(path[-1])
+    if not m:
+        return None
+    return tuple(normalizar_chave(p) for p in path[:-1]), int(m.group(1))
+
+
+def _step_retentativa(spec_model, estado_nome, t, sp_t):
+    """Step de uma tentativa de REJ/SIL: mostra o prompt de retentativa
+    (REJ1, REJ2, SIL1, SIL2, ... ou o prompt de saida da ultima tentativa),
+    com seu texto e SP, e pra onde a chamada segue."""
+    prompt, dono = next(_candidatos_prompt_transicao(spec_model, estado_nome, t), (None, None))
+    prompt_id = prompt["id"] if prompt else "—"
+    prompt_texto = prompt["texto"] if prompt else "—"
+    path = t.get("path") or [t["condicao"]]
+    folha = path[-1]
+    silencio = bool(_SIL_RE.search(t["condicao"]))
+    acao = f"{'Ficar em silêncio (SIL)' if silencio else 'Digitar opção inválida (REJ)'} — {folha}"
+
+    destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
+    destino_txt = f"segue para {destino_real}" if destino_real and destino_real != estado_nome else "permanece no estado"
+    if sp_t:
+        resultado = f"{sp_t[0]}={sp_t[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
+    else:
+        resultado = prompt_texto
+    return {
+        "step_num": 0,
+        "acao": acao,
+        "estado": dono or estado_nome,
+        "prompt_id": prompt_id,
+        "prompt_texto": prompt_texto,
+        "sp": sp_t,
+        "resultado": f"{resultado} | {destino_txt}",
+    }
 
 
 def _acao_para_step(idx, condicao, perfil):
@@ -359,7 +411,7 @@ def _acao_para_step(idx, condicao, perfil):
     return f"Navegar ({condicao})"
 
 
-def montar_steps(spec_model, caminho, perfil):
+def montar_steps(spec_model, caminho, perfil, transicao_final=None):
     steps = []
     for j, estado_nome in enumerate(caminho):
         prox_prompt_target = ""
@@ -374,6 +426,10 @@ def montar_steps(spec_model, caminho, perfil):
                 (t for t in transicoes if resolver_destino(spec_model["mapa_rotas"], t["destino"]) == estado_nome),
                 None,
             )
+            # O ultimo hop de um CT por transicao deve usar ESSA transicao
+            # (nao a primeira que por acaso aponte pro mesmo destino).
+            if transicao_final is not None and j == len(caminho) - 1:
+                match_t = transicao_final
             if match_t:
                 condicao = match_t["condicao"]
                 prox_prompt_target = match_t.get("prox_prompt", "")
@@ -472,7 +528,7 @@ class GeradorCT:
         tipo, codigo = sp
         self._sp_bi_cobertura.setdefault(codigo, []).append(ct_id)
 
-    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None):
+    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None):
         if not caminho:
             self.revisao_necessaria.append(
                 {
@@ -483,7 +539,16 @@ class GeradorCT:
             )
             return None
 
-        steps = montar_steps(self.spec_model, caminho, perfil)
+        steps = montar_steps(self.spec_model, caminho, perfil, transicao_final=transicao_final)
+        # Steps adicionais (ex.: tentativas REJ1/REJ2/... ou SIL1/SIL2/... da
+        # mesma escada, num unico CT) entram depois do caminho ate o estado.
+        for extra in steps_extra or []:
+            novo = dict(extra)
+            novo["step_num"] = len(steps) + 1
+            steps.append(novo)
+        sps_todos = [sp for sp in (sps_todos or []) if sp]
+        if sps_todos and not sp_final:
+            sp_final = sps_todos[0]
         sp_pendente = sp_pendente or (sp_final is None and self.tipo_a)
 
         resultado_txt = _formatar_resultado_esperado(steps, sp_final, sp_pendente)
@@ -500,9 +565,12 @@ class GeradorCT:
         )
 
         perfil_txt = "ANINÃO" if perfil == "aninao" else "ANISIM"
-        resultado_gherkin = (
-            f"marcar o ScriptPoint {sp_final[1]}" if sp_final else "preservar o fluxo vigente sem novo SP (SP PENDENTE)"
-        )
+        if len(sps_todos) > 1:
+            resultado_gherkin = "marcar os ScriptPoints " + ", ".join(sp[1] for sp in sps_todos)
+        else:
+            resultado_gherkin = (
+                f"marcar o ScriptPoint {sp_final[1]}" if sp_final else "preservar o fluxo vigente sem novo SP (SP PENDENTE)"
+            )
         if gherkin_override:
             gherkin = abreviar_gherkin(gherkin_override)
         else:
@@ -513,8 +581,11 @@ class GeradorCT:
         sufixo = "b" if sp_pendente and self.tipo_a else ""
         ct_id = self._novo_id(sufixo)
         self._registrar_sp(sp_final, ct_id)
+        for sp_extra in sps_todos:
+            if sp_extra != sp_final:
+                self._registrar_sp(sp_extra, ct_id)
 
-        tags = {"linha": "Celular/Fixo", "afterhours": "AfterHours", "mpl": "MPL", "protocolo": "Protocolo", "adimplencia": "Adimplência"}
+        tags ={"linha": "Celular/Fixo", "afterhours": "AfterHours", "mpl": "MPL", "protocolo": "Protocolo", "adimplencia": "Adimplência"}
         pre_req_partes = [f"ANI {'Não' if perfil == 'aninao' else 'Sim'}"]
         for chave, rotulo in tags.items():
             if restricoes and chave in restricoes:
@@ -541,7 +612,11 @@ class GeradorCT:
             "gherkin": gherkin,
             "steps": steps,
             "sp_pendente": sp_pendente,
-            "sp_final": f"{sp_final[0]}={sp_final[1]}" if sp_final else None,
+            "sp_final": (
+                ", ".join(f"{tipo}={cod}" for tipo, cod in sps_todos)
+                if len(sps_todos) > 1
+                else (f"{sp_final[0]}={sp_final[1]}" if sp_final else None)
+            ),
             "pre_requisito": pre_requisito,
             "requisitos_massa": requisitos_massa,
         }
@@ -680,63 +755,132 @@ class GeradorCT:
             sp_antigo_local = 0
             sem_sp_local = 0
             sem_caminho_local = 0
-            for t in sorted(transicoes, key=_chave_ordenacao):
+            def _avaliar(t):
+                """(sp_efetivo, status) — status: 'ok' | 'antigo' | 'sem_sp'."""
                 sp_t = _sp_efetivo_transicao(self.spec_model, nome_real, t)
                 # Num estado NOVO, os ramos de REJ/SIL (usuario digitou algo
                 # diferente / ficou em silencio) devem ser 100% mapeados,
                 # mesmo quando a tentativa final (normalmente a 3ª) sai pra
                 # OUTRO estado (ex.: Transfer) tocando um prompt que nao
                 # carrega SP nenhum (nem novo, nem antigo — e so um prompt
-                # de saida compartilhado). Sem essa excecao, esses ramos
-                # caiam no filtro de "sem sinal de SP novo" e ficavam de
-                # fora, mesmo sendo saida obrigatoria de um estado 100% novo.
-                rej_sil_estado_novo = estado_novo and _eh_transicao_rej_sil(t["condicao"])
-                if self._sps_novos and not rej_sil_estado_novo:
-                    if sp_t and sp_t[1] not in self._sps_novos:
-                        # SP ja existia antes desta versao (nao esta na lista
-                        # de novos da VersionamentoBI) — fora do escopo do
-                        # teste.
-                        self._transicoes_ignoradas_sp_antigo += 1
-                        sp_antigo_local += 1
-                        continue
-                    if not sp_t:
-                        # Transicao sem NENHUMA marcacao de SP. Quando ja
-                        # sabemos quais SPs sao realmente novos (BI nao esta
-                        # vazia), uma transicao sem SP nao tem nenhum sinal
-                        # de que faz parte desta versao — pode ser so um
-                        # ramo antigo do menu que nunca precisou de SP. Sem
-                        # esse filtro, um estado grande com dezenas de ramos
-                        # legados gera uma "SP PENDENTE" pra CADA UM deles
-                        # (ex.: 88 CTs especulativos pra um estado que so
-                        # teve 2 SPs novos de verdade), violando L3/L4 (1 CT
-                        # por SP novo, nada de teste especulativo).
-                        self._transicoes_ignoradas_sem_sp += 1
-                        sem_sp_local += 1
-                        continue
+                # de saida compartilhado).
+                if estado_novo and _eh_transicao_rej_sil(t["condicao"]):
+                    return sp_t, "ok"
+                if not self._sps_novos:
+                    return sp_t, "ok"
+                if sp_t and sp_t[1] not in self._sps_novos:
+                    # SP ja existia antes desta versao (nao esta na lista de
+                    # novos da VersionamentoBI) — fora do escopo do teste.
+                    return sp_t, "antigo"
+                if not sp_t:
+                    # Sem NENHUMA marcacao de SP, com a BI ja preenchida:
+                    # nenhum sinal de que faz parte desta versao — pode ser
+                    # so um ramo antigo do menu. Sem esse filtro, um estado
+                    # grande com dezenas de ramos legados gera uma "SP
+                    # PENDENTE" pra CADA UM (violando L3/L4).
+                    return sp_t, "sem_sp"
+                return sp_t, "ok"
 
-                assinatura = normalizar_chave(t["condicao"])
-                if assinatura in vistos_condicao:
+            def _contar_ignorada(status):
+                nonlocal sp_antigo_local, sem_sp_local
+                if status == "antigo":
+                    self._transicoes_ignoradas_sp_antigo += 1
+                    sp_antigo_local += 1
+                elif status == "sem_sp":
+                    self._transicoes_ignoradas_sem_sp += 1
+                    sem_sp_local += 1
+
+            # As tentativas de uma mesma escada de REJ (ou de SIL) — 1ª vez,
+            # 2ª vez, 3ª vez... — sao uma sequencia unica de uma so chamada
+            # (volta pro mesmo estado ate esgotar e sair): viram UM CT com um
+            # step por tentativa (mostrando o prompt REJ1/REJ2/... de cada
+            # uma), em vez de um CT por tentativa.
+            unidades = []
+            grupos = {}
+            for t in sorted(transicoes, key=_chave_ordenacao):
+                chave = _chave_grupo_retentativa(t)
+                if chave is None:
+                    unidades.append([t])
                     continue
-                vistos_condicao.add(assinatura)
+                if chave[0] not in grupos:
+                    grupos[chave[0]] = []
+                    unidades.append(grupos[chave[0]])
+                grupos[chave[0]].append((chave[1], t))
 
-                restr = extrair_restricoes_sessao(t["condicao"])
+            for unidade in unidades:
+                eh_escada = bool(unidade) and isinstance(unidade[0], tuple)
+
+                if not eh_escada:
+                    t = unidade[0]
+                    sp_t, status = _avaliar(t)
+                    if status != "ok":
+                        _contar_ignorada(status)
+                        continue
+
+                    assinatura = normalizar_chave(t["condicao"])
+                    if assinatura in vistos_condicao:
+                        continue
+                    vistos_condicao.add(assinatura)
+
+                    restr = extrair_restricoes_sessao(t["condicao"])
+                    perfil = restr.get("ani", perfil_base)
+                    caminho, perfil_efetivo = bfs_caminho_entrada(
+                        self.spec_model, nome_real, perfil_entrada=perfil, restricoes_extra=restr
+                    )
+                    if not caminho:
+                        sem_caminho_local += 1
+                        continue
+                    if perfil_efetivo != perfil:
+                        perfil = perfil_efetivo
+                        restr = dict(restr)
+                        restr["ani"] = perfil_efetivo
+                    destino_hop = resolver_destino(self.spec_model["mapa_rotas"], t["destino"])
+                    caminho_completo = caminho + ([destino_hop] if destino_hop and destino_hop != caminho[-1] else [])
+                    alteracao_txt = f"{est['alteracao']} — condição: {t['condicao']}" if est.get("alteracao") else t["condicao"]
+                    self._add_ct(
+                        bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho_completo,
+                        sp_final=sp_t, restricoes=restr,
+                        transicao_final=t if len(caminho_completo) > len(caminho) else None,
+                    )
+                    continue
+
+                tentativas = [t for _n, t in sorted(unidade, key=lambda x: x[0])]
+                avaliacoes = [_avaliar(t) for t in tentativas]
+                if not any(status == "ok" for _sp, status in avaliacoes):
+                    for _sp, status in avaliacoes:
+                        _contar_ignorada(status)
+                    continue
+
+                restr = extrair_restricoes_sessao(tentativas[0]["condicao"])
                 perfil = restr.get("ani", perfil_base)
                 caminho, perfil_efetivo = bfs_caminho_entrada(
                     self.spec_model, nome_real, perfil_entrada=perfil, restricoes_extra=restr
                 )
                 if not caminho:
-                    sem_caminho_local += 1
+                    sem_caminho_local += len(tentativas)
                     continue
                 if perfil_efetivo != perfil:
                     perfil = perfil_efetivo
                     restr = dict(restr)
                     restr["ani"] = perfil_efetivo
-                destino_hop = resolver_destino(self.spec_model["mapa_rotas"], t["destino"])
-                caminho_completo = caminho + ([destino_hop] if destino_hop and destino_hop != caminho[-1] else [])
-                alteracao_txt = f"{est['alteracao']} — condição: {t['condicao']}" if est.get("alteracao") else t["condicao"]
+
+                steps_extra = [
+                    _step_retentativa(self.spec_model, nome_real, t, sp_t)
+                    for t, (sp_t, _status) in zip(tentativas, avaliacoes)
+                ]
+                sps_escada = []
+                for sp_t, _status in avaliacoes:
+                    if sp_t and sp_t not in sps_escada:
+                        sps_escada.append(sp_t)
+
+                pai = " > ".join((tentativas[0].get("path") or [tentativas[0]["condicao"]])[:-1])
+                folhas = " → ".join((t.get("path") or [t["condicao"]])[-1] for t in tentativas)
+                rotulo = f"{pai} > {folhas}"
+                alteracao_txt = f"{est['alteracao']} — condição: {rotulo}" if est.get("alteracao") else rotulo
                 self._add_ct(
-                    bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho_completo,
-                    sp_final=sp_t, restricoes=restr,
+                    bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho,
+                    sp_final=sps_escada[0] if sps_escada else None, sps_todos=sps_escada,
+                    steps_extra=steps_extra, restricoes=restr,
                 )
 
             if self._sps_novos and len(self.casos_teste) > cts_antes:
