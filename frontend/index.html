@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261015" />
+  <link rel="stylesheet" href="style.css?v=20261016" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -652,14 +652,14 @@
     btn.disabled = true;
     btn.textContent = 'Gerando…';
     try {
-      const tipo_a = document.getElementById('projetoTipoSelect').value;
-      const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
-      const url = `${API}/api/exportar-testes?tipo_a=${tipo_a}&ivr_code=${ivrCode}`;
-      if (servidorPrecisaReenvio) await reenviarEntradasSalvas();
-      let resp = await fetch(url, { credentials: 'same-origin' });
-      // O servidor pode ter reiniciado/dormido e perdido a SPEC/EEP da sessão:
-      // reenvia as cópias guardadas neste navegador e tenta de novo.
-      if (resp.status === 400 && await reenviarEntradasSalvas()) resp = await fetch(url, { credentials: 'same-origin' });
+      // O xlsx sai do resultado que o proprio navegador guarda: nao depende da SPEC/EEP
+      // na sessao do servidor (que se perde ao reiniciar ou ao trocar de maquina).
+      const resp = await fetch(`${API}/api/exportar-testes-dados`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(cacheModelagem),
+      });
       if (!resp.ok) {
         const res = await resp.json().catch(() => null);
         throw new Error((res && (res.detail || res.erro)) || `Erro HTTP ${resp.status}`);

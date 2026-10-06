@@ -23,7 +23,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import sessions
 import pdf_execucao
-from parser import gerar_modelagem_testes_completa, dados_para_frontend, exportar_planilha_para_bytes
+from parser import (
+    gerar_modelagem_testes_completa,
+    dados_para_frontend,
+    exportar_planilha_para_bytes,
+    dados_do_navegador_para_exportacao,
+)
 
 _LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "ModelerAssistant", "logs")
 try:
@@ -382,6 +387,34 @@ def exportar_planilha_testes(request: Request, tipo_a: bool = True, ivr_code: st
     )
     _aplicar_cookie_se_novo(resp, sid, novo)
     return resp
+
+
+@app.post("/api/exportar-testes-dados")
+async def exportar_planilha_testes_dados(request: Request):
+    """Gera o xlsx a partir do resultado que o navegador ja tem (sem depender da
+    SPEC/EEP guardadas na sessao do servidor, que o plano gratuito perde ao
+    dormir/reiniciar)."""
+    try:
+        corpo = await request.json()
+        assert isinstance(corpo, dict)
+        casos = corpo.get("casos_teste")
+        assert isinstance(casos, list) and 0 < len(casos) <= MAX_CTS_PDF and all(isinstance(c, dict) for c in casos)
+        dados = dados_do_navegador_para_exportacao(corpo)
+        xlsx_bytes, _relatorio = exportar_planilha_para_bytes(dados)
+    except (AssertionError, KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Dados da modelagem inválidos para exportar. Gere a modelagem novamente.")
+    except Exception as e:
+        _log_erro("Erro em exportar_planilha_testes_dados", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao exportar planilha Excel: {type(e).__name__}: {e}. Detalhes em {_BACKEND_LOG}",
+        )
+    ivr = re.sub(r"[^A-Za-z0-9_-]", "", str(corpo.get("jira_ivr") or "URA"))
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=Plano_de_Testes_URA_{ivr or 'URA'}.xlsx"},
+    )
 
 
 @app.get("/api/relatorio-validacao")

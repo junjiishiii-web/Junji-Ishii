@@ -95,6 +95,8 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
         "bi_marcacoes": plano["bi_marcacoes"],
         "legenda": plano["legenda"],
         "planejamento": montar_planejamento(plano, eep_model, spec_model, ivr_efetivo, tipo_a),
+        "versao_spec": spec_model["versionamento"].get("versao"),
+        "titulo_ivr_spec": spec_model["versionamento"].get("ivr"),
         "casos_teste_empresas": plano_empresas["casos_teste"] if plano_empresas else None,
         # Campos internos, usados apenas por exportar_planilha_para_bytes:
         "_plano": plano,
@@ -108,6 +110,34 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
 def dados_para_frontend(dados):
     """Remove os campos internos (prefixo `_`) antes de responder ao frontend."""
     return {k: v for k, v in dados.items() if not k.startswith("_")}
+
+
+def dados_do_navegador_para_exportacao(dados):
+    """Reconstroi o que o gerador de xlsx precisa a partir do JSON que o proprio
+    navegador guardou (resultado da modelagem) — assim o xlsx sai mesmo quando o
+    servidor perdeu a SPEC/EEP da sessao (reinicio/outra maquina)."""
+    casos = dados["casos_teste"]
+    legenda = dados.get("legenda") or []
+    plano = {
+        "casos_teste": casos,
+        "revisao_necessaria": dados.get("revisao_necessaria") or [],
+        "bi_marcacoes": dados.get("bi_marcacoes") or [],
+        "legenda": legenda,
+        "blocos": [{"titulo": l.get("titulo", "")} for l in legenda],
+    }
+    plano_empresas = {"casos_teste": dados["casos_teste_empresas"]} if dados.get("casos_teste_empresas") else None
+    return {
+        "_plano": plano,
+        "_plano_empresas": plano_empresas,
+        "_eep_model": {
+            "nome": dados.get("projeto_nome") or "—",
+            "chaves": dados.get("chaves_api") or [],
+            "vdns": dados.get("vdns_roteamento") or [],
+        },
+        "_spec_model": {"versionamento": {"versao": dados.get("versao_spec"), "ivr": dados.get("titulo_ivr_spec")}},
+        "_ivr_code": dados.get("jira_ivr"),
+        "planejamento": dados.get("planejamento"),
+    }
 
 
 def exportar_planilha_para_bytes(dados):
