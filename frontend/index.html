@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261013" />
+  <link rel="stylesheet" href="style.css?v=20261014" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -858,6 +858,34 @@
     }
   }
 
+  // Resultados salvos por versoes antigas nao tinham o "Estado da marcacao" nas
+  // Marcacoes de BI. O estado e dado puro da SPEC: refaz a leitura em segundo plano
+  // e completa SO esse campo (CTs, status e evidencias nao sao tocados).
+  async function completarEstadoBI(ui) {
+    try {
+      const lista = (cacheModelagem && cacheModelagem.bi_marcacoes) || [];
+      if (!lista.length || lista.every(sp => sp.estado)) return;
+      if (!(await reenviarEntradasSalvas())) return;
+      const tipo = (ui && ui.tipo_a) || document.getElementById('projetoTipoSelect').value;
+      const ivr = encodeURIComponent((ui && ui.ivr) || '');
+      const r0 = await fetch(`${API}/api/iniciar-modelagem?tipo_a=${tipo}&ivr_code=${ivr}`, { method: 'POST', credentials: 'same-origin' });
+      if (!r0.ok) return;
+      for (let n = 0; n < 300; n++) {
+        const p = await (await fetch(`${API}/api/progresso`, { credentials: 'same-origin' })).json();
+        if (p.concluido) { if (p.erro) return; break; }
+        await _aguardar(1000);
+      }
+      const novo = await (await fetch(`${API}/api/resultado-modelagem`, { credentials: 'same-origin' })).json();
+      const porCodigo = {};
+      (novo.bi_marcacoes || []).forEach(sp => { if (sp.estado && sp.estado !== '—') porCodigo[sp.codigo] = sp.estado; });
+      lista.forEach(sp => { if (!sp.estado && porCodigo[sp.codigo]) sp.estado = porCodigo[sp.codigo]; });
+      renderizarBI(cacheModelagem);
+      await persistir(() => dbPut('estado', cacheModelagem, 'resultado'));
+    } catch (err) {
+      console.warn('Não foi possível completar o estado das marcações de BI:', err);
+    }
+  }
+
   async function restaurarTrabalhoSalvo() {
     try {
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -913,6 +941,7 @@
         if (btn) switchExcelTab(ui.aba, btn);
       }
       _textoSalvo('💾 Trabalho restaurado deste navegador', false);
+      completarEstadoBI(ui);
     } catch (err) {
       console.warn('Não foi possível restaurar o trabalho salvo:', err);
     } finally {
@@ -1236,28 +1265,7 @@
         </div>`;
     });
 
-    // BI Marcações
-    const biBody = document.getElementById('biMarcacoesBody');
-    biBody.innerHTML = "";
-    const biLista = data.bi_marcacoes || [];
-    const biSemCt = biLista.filter(sp => sp.ct === '—').length;
-    document.getElementById('biResumo').textContent = biLista.length
-      ? `${biLista.length} ScriptPoint(s) marcados · ${biLista.length - biSemCt} coberto(s) por CT · ${biSemCt} sem CT`
-      : '';
-    biLista.forEach(sp => {
-      const semCt = sp.ct === '—';
-      biBody.innerHTML += `
-        <tr${semCt ? ' style="background:#fff4e5;"' : ''}>
-          <td><strong>${escHtml(sp.codigo)}</strong></td>
-          <td>${escHtml(sp.descricao)}</td>
-          <td>${escHtml(sp.estado || '—')}</td>
-          <td>${escHtml(sp.ct)}</td>
-        </tr>`;
-    });
-    if (!data.bi_marcacoes || data.bi_marcacoes.length === 0) {
-      biBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:20px;">
-        Nenhum ScriptPoint novo encontrado na aba Versionamento BI.</td></tr>`;
-    }
+    renderizarBI(data);
 
     // Histórico de alterações
     const hBody = document.getElementById('historicoBody');
@@ -1420,6 +1428,30 @@
           <tbody>${stepsRowsHtml}</tbody>
         </table>
         ${rodapeExecucao}`;
+    }
+  }
+
+  function renderizarBI(data) {
+    const biBody = document.getElementById('biMarcacoesBody');
+    biBody.innerHTML = "";
+    const biLista = data.bi_marcacoes || [];
+    const biSemCt = biLista.filter(sp => sp.ct === '—').length;
+    document.getElementById('biResumo').textContent = biLista.length
+      ? `${biLista.length} ScriptPoint(s) marcados · ${biLista.length - biSemCt} coberto(s) por CT · ${biSemCt} sem CT`
+      : '';
+    biLista.forEach(sp => {
+      const semCt = sp.ct === '—';
+      biBody.innerHTML += `
+        <tr${semCt ? ' style="background:#fff4e5;"' : ''}>
+          <td><strong>${escHtml(sp.codigo)}</strong></td>
+          <td>${escHtml(sp.descricao)}</td>
+          <td>${escHtml(sp.estado || '—')}</td>
+          <td>${escHtml(sp.ct)}</td>
+        </tr>`;
+    });
+    if (!data.bi_marcacoes || data.bi_marcacoes.length === 0) {
+      biBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:20px;">
+        Nenhum ScriptPoint novo encontrado na aba Versionamento BI.</td></tr>`;
     }
   }
 
