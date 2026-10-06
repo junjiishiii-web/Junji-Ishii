@@ -54,6 +54,54 @@ def _escrever_capa(wb, plano, eep_model, spec_model, ivr_code):
     return ws
 
 
+def _escrever_planejamento_completo(wb, pl):
+    """Aba Planejamento a partir do plano detalhado (planejamento.montar_planejamento)."""
+    ws = wb.create_sheet("Planejamento")
+    ws.column_dimensions["B"].width = 26
+    ws.column_dimensions["C"].width = 110
+    ws.append([None])
+    ws["B2"] = "Seção"
+    ws["C2"] = "Detalhamento"
+    for col in ("B", "C"):
+        ws[f"{col}2"].font = Font(name=FONT_NAME, bold=True)
+        ws[f"{col}2"].fill = PatternFill(start_color="EBEBEB", end_color="EBEBEB", fill_type="solid")
+
+    def lista(itens):
+        return "\n".join("• " + str(i) for i in itens) if itens else "—"
+
+    cob = pl.get("cobertura") or {}
+    linhas = [
+        ("Resumo", pl.get("resumo") or "—"),
+        ("Identificação", "\n".join(f"{i['rotulo']}: {i['valor']}" for i in pl.get("identificacao", [])) or "—"),
+        ("Objetivo", lista((pl.get("objetivo") or {}).get("itens"))),
+        ("Contexto", lista((pl.get("contexto") or {}).get("itens"))),
+        ("Regras de negócio", lista((pl.get("regras") or {}).get("itens"))),
+        ("Escopo — dentro", lista([f"{e['estado']}: {e['alteracao']}" for e in (pl.get("escopo") or {}).get("dentro", [])])),
+        ("Escopo — fora / atenção", lista((pl.get("escopo") or {}).get("fora"))),
+        ("Estratégia de teste", lista(pl.get("estrategia"))),
+        (
+            "Cobertura",
+            f"{cob.get('total', 0)} CT(s): {cob.get('funcionais', 0)} funcionais, {cob.get('regressivos', 0)} regressivos. "
+            f"ScriptPoints do BI: {cob.get('sps_cobertos', 0)} de {cob.get('sps_marcados', 0)} cobertos.",
+        ),
+        ("Massa e dados", lista(pl.get("massa"))),
+        ("Premissas", lista(pl.get("premissas"))),
+        ("Restrições", lista(pl.get("restricoes"))),
+        ("Riscos", lista([f"[{r['nivel'].upper()}] {r['texto']}" for r in pl.get("riscos", [])])),
+        ("Critérios de entrada", lista((pl.get("criterios") or {}).get("entrada"))),
+        ("Critérios de saída", lista((pl.get("criterios") or {}).get("saida"))),
+        ("Critérios de falha", lista((pl.get("criterios") or {}).get("falha"))),
+        ("Lacunas do EEP", lista(pl.get("lacunas"))),
+    ]
+    for i, (rotulo, valor) in enumerate(linhas):
+        row = i + 3
+        ws.cell(row=row, column=2, value=rotulo).font = Font(name=FONT_NAME, bold=True)
+        ws.cell(row=row, column=2).alignment = Alignment(vertical="top")
+        c = ws.cell(row=row, column=3, value=valor)
+        c.font = Font(name=FONT_NAME, size=10)
+        c.alignment = Alignment(wrap_text=True, vertical="top")
+
+
 def _escrever_planejamento(wb, plano, eep_model):
     ws = wb.create_sheet("Planejamento")
     ws.column_dimensions["B"].width = 22
@@ -225,14 +273,17 @@ def _escrever_cenarios(wb, aba_nome, casos_teste):
     return ws
 
 
-def exportar_modelagem_para_xlsx(plano, eep_model, spec_model, ivr_code=None, aba_extra=None):
+def exportar_modelagem_para_xlsx(plano, eep_model, spec_model, ivr_code=None, aba_extra=None, planejamento=None):
     """
     Monta o workbook final. `aba_extra`, quando fornecido, e uma tupla
     (nome_aba, casos_teste) para o modo dual SPEC (MERGE + ClaroEmpresas).
     """
     wb = Workbook()
     _escrever_capa(wb, plano, eep_model, spec_model, ivr_code)
-    _escrever_planejamento(wb, plano, eep_model)
+    if planejamento:
+        _escrever_planejamento_completo(wb, planejamento)
+    else:
+        _escrever_planejamento(wb, plano, eep_model)
     _escrever_bi_marcacoes(wb, plano)
     _escrever_legenda(wb, plano)
 

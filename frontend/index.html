@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261014" />
+  <link rel="stylesheet" href="style.css?v=20261015" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -143,21 +143,7 @@
     <!-- PLANEJAMENTO -->
     <div class="sheet-panel" id="tabPlanejamento">
       <h3 class="section-title">Planejamento de Homologação</h3>
-      <div class="plan-grid">
-        <div class="plan-card entrada">
-          <div class="plan-card-label">✅ Critério de Entrada</div>
-          Ambiente de HML disponível, SPEC carregada, chaves de elegibilidade e desvio de DDDs ativas no ambiente.
-        </div>
-        <div class="plan-card falha">
-          <div class="plan-card-label">❌ Critério de Falha</div>
-          VDNs errados acionados em homologação, falta de registro de ScriptPoints obrigatórios ou desvio para fluxo incorreto.
-        </div>
-        <div class="plan-card saida">
-          <div class="plan-card-label">🔵 Critério de Saída</div>
-          Todos os CTs gerados dinamicamente executados e aprovados com evidências de CDR.
-        </div>
-      </div>
-      <div id="planejamentoExtra"></div>
+      <div id="planejamentoBody"></div>
     </div>
 
     <!-- MARCAÇÕES DE BI -->
@@ -312,7 +298,7 @@
           <table class="manual-tabela">
             <tr><th>Aba</th><th>Para que serve</th></tr>
             <tr><td><strong>Geral</strong></td><td>Projeto/IVR, total de CTs, chaves sistêmicas do EEP, um cartão por CT (mapeado ou “SP pendente”) e o histórico de alterações por estado.</td></tr>
-            <tr><td><strong>Planejamento</strong></td><td>Critérios de entrada, falha e saída da homologação.</td></tr>
+            <tr><td><strong>Planejamento</strong></td><td>Plano de homologação completo: resumo, identificação, objetivo, contexto e regras de negócio (extraídos do EEP), escopo, estratégia, cobertura, massa de testes, premissas, restrições, riscos e critérios de entrada, saída e falha. Cada bloco indica a fonte (EEP, SPEC ou gerado pela ferramenta); o que o EEP não trouxe aparece em “Lacunas do EEP”.</td></tr>
             <tr><td><strong>Marcações de BI</strong></td><td>ScriptPoints marcados na VersionamentoBI para o projeto, o estado de cada marcação e qual CT cobre cada um.</td></tr>
             <tr><td><strong>Massa de Testes</strong></td><td>Tabela dos CTs com perfil/condição de entrada, contrato, avaliação e comentários.</td></tr>
             <tr><td><strong>Legenda</strong></td><td>Cores dos blocos da modelagem e VDNs de transferência extraídos do EEP.</td></tr>
@@ -864,7 +850,8 @@
   async function completarEstadoBI(ui) {
     try {
       const lista = (cacheModelagem && cacheModelagem.bi_marcacoes) || [];
-      if (!lista.length || lista.every(sp => sp.estado)) return;
+      const faltaEstado = lista.length && !lista.every(sp => sp.estado);
+      if (!faltaEstado && cacheModelagem.planejamento) return;
       if (!(await reenviarEntradasSalvas())) return;
       const tipo = (ui && ui.tipo_a) || document.getElementById('projetoTipoSelect').value;
       const ivr = encodeURIComponent((ui && ui.ivr) || '');
@@ -879,7 +866,12 @@
       const porCodigo = {};
       (novo.bi_marcacoes || []).forEach(sp => { if (sp.estado && sp.estado !== '—') porCodigo[sp.codigo] = sp.estado; });
       lista.forEach(sp => { if (!sp.estado && porCodigo[sp.codigo]) sp.estado = porCodigo[sp.codigo]; });
+      // O plano so e aproveitado se descreve a mesma modelagem salva (mesmo numero de CTs).
+      if (!cacheModelagem.planejamento && novo.planejamento && (novo.casos_teste || []).length === cacheModelagem.casos_teste.length) {
+        cacheModelagem.planejamento = novo.planejamento;
+      }
       renderizarBI(cacheModelagem);
+      renderizarPlanejamento(cacheModelagem);
       await persistir(() => dbPut('estado', cacheModelagem, 'resultado'));
     } catch (err) {
       console.warn('Não foi possível completar o estado das marcações de BI:', err);
@@ -1319,6 +1311,7 @@
     });
 
     renderizarBI(data);
+    renderizarPlanejamento(data);
 
     // Histórico de alterações
     const hBody = document.getElementById('historicoBody');
@@ -1482,6 +1475,81 @@
         </table>
         ${rodapeExecucao}`;
     }
+  }
+
+  /* ─── Planejamento de homologação ─── */
+  function _lista(itens, vazio) {
+    return itens && itens.length
+      ? `<ul class="plan-lista">${itens.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>`
+      : `<p class="plan-vazio">${escHtml(vazio || 'Nada informado.')}</p>`;
+  }
+  function _cartaoPlan(titulo, corpo, fonte, extraClasse) {
+    return `<section class="plan-sec ${extraClasse || ''}">
+      <div class="plan-sec-topo"><h4>${titulo}</h4>${fonte ? `<span class="plan-fonte">${escHtml(fonte)}</span>` : ''}</div>
+      ${corpo}
+    </section>`;
+  }
+
+  function renderizarPlanejamento(data) {
+    const alvo = document.getElementById('planejamentoBody');
+    const pl = data.planejamento;
+    if (!pl) {
+      alvo.innerHTML = `<p class="plan-vazio">O plano detalhado é gerado junto com a modelagem. Ele será completado
+        automaticamente nesta tela; se não aparecer, use <strong>Nova Modelagem</strong> e gere de novo.</p>`;
+      return;
+    }
+    const cob = pl.cobertura || {};
+    const pctSp = cob.sps_marcados ? Math.round((cob.sps_cobertos * 100) / cob.sps_marcados) : null;
+    const nivelRotulo = { alto: 'ALTO', medio: 'MÉDIO', baixo: 'BAIXO' };
+
+    const identificacao = `<div class="plan-ident">${(pl.identificacao || []).map(i =>
+      `<div><span>${escHtml(i.rotulo)}</span><strong>${escHtml(i.valor)}</strong></div>`).join('')}</div>`;
+
+    const tiles = `<div class="plan-tiles">
+      <div><strong>${cob.total ?? 0}</strong><span>CTs no total</span></div>
+      <div><strong>${cob.funcionais ?? 0}</strong><span>funcionais</span></div>
+      <div><strong>${cob.regressivos ?? 0}</strong><span>regressivos</span></div>
+      <div><strong>${cob.sps_cobertos ?? 0}/${cob.sps_marcados ?? 0}</strong><span>SPs do BI cobertos${pctSp !== null ? ` (${pctSp}%)` : ''}</span></div>
+      <div><strong>${(cob.estados || []).length}</strong><span>estados com CT</span></div>
+    </div>`;
+    const blocos = (cob.blocos || []).length
+      ? `<table class="data-table plan-tabela"><thead><tr><th>Bloco</th><th>Objetivo</th><th>CTs</th><th>ScriptPoints</th></tr></thead><tbody>${
+          cob.blocos.map(b => `<tr><td>${escHtml(b.bloco)}</td><td>${escHtml(b.titulo)}</td><td>${escHtml(b.cts)}</td><td>${escHtml(b.sps)}</td></tr>`).join('')
+        }</tbody></table>` : '';
+
+    const dentro = (pl.escopo.dentro || []).length
+      ? `<table class="data-table plan-tabela"><thead><tr><th style="width:230px;">Estado alterado</th><th>O que mudou</th></tr></thead><tbody>${
+          pl.escopo.dentro.map(e => `<tr><td class="td-state">${escHtml(e.estado)}</td><td>${escHtml(e.alteracao)}</td></tr>`).join('')
+        }</tbody></table>`
+      : '<p class="plan-vazio">Nenhum estado alterado identificado.</p>';
+
+    const riscos = (pl.riscos || []).map(r =>
+      `<li class="risco ${escHtml(r.nivel)}"><span class="risco-nivel">${nivelRotulo[r.nivel] || escHtml(r.nivel)}</span>${escHtml(r.texto)}</li>`).join('');
+
+    const crit = pl.criterios || {};
+    const criterios = `<div class="plan-grid">
+      <div class="plan-card entrada"><div class="plan-card-label">✅ Critério de entrada</div>${_lista(crit.entrada)}</div>
+      <div class="plan-card falha"><div class="plan-card-label">❌ Critério de falha</div>${_lista(crit.falha)}</div>
+      <div class="plan-card saida"><div class="plan-card-label">🔵 Critério de saída</div>${_lista(crit.saida)}</div>
+    </div>`;
+
+    alvo.innerHTML = [
+      `<div class="plan-resumo">${escHtml(pl.resumo || '')}</div>`,
+      _cartaoPlan('Identificação', identificacao, ''),
+      _cartaoPlan('Objetivo do projeto', _lista(pl.objetivo.itens), pl.objetivo.fonte === 'EEP' ? 'Fonte: EEP' : 'Fonte: SPEC (inferido)'),
+      pl.contexto.itens.length ? _cartaoPlan('Contexto e problema', _lista(pl.contexto.itens), 'Fonte: EEP') : '',
+      _cartaoPlan('Regras de negócio', _lista(pl.regras.itens), pl.regras.fonte === 'EEP' ? 'Fonte: EEP' : 'Fonte: SPEC (versionamento)'),
+      _cartaoPlan('Escopo — o que será testado', dentro, 'Fonte: SPEC'),
+      (pl.escopo.fora || []).length ? _cartaoPlan('Fora do escopo / pontos de atenção', _lista(pl.escopo.fora), 'Fonte: SPEC/EEP') : '',
+      _cartaoPlan('Estratégia de teste', _lista(pl.estrategia), 'Gerado pela ferramenta'),
+      _cartaoPlan('Cobertura da modelagem', tiles + blocos, 'Fonte: CTs e Versionamento BI'),
+      _cartaoPlan('Massa de testes e dados', _lista(pl.massa), 'Fonte: EEP/CTs'),
+      (pl.premissas || []).length ? _cartaoPlan('Premissas', _lista(pl.premissas), 'Fonte: EEP') : '',
+      (pl.restricoes || []).length ? _cartaoPlan('Restrições', _lista(pl.restricoes), 'Fonte: EEP') : '',
+      _cartaoPlan('Riscos e pontos de atenção', `<ul class="plan-riscos">${riscos}</ul>`, 'Calculado + EEP'),
+      _cartaoPlan('Critérios de entrada, saída e falha', criterios, ''),
+      (pl.lacunas || []).length ? _cartaoPlan('Lacunas do EEP', _lista(pl.lacunas), 'A confirmar com o time', 'plan-lacunas') : '',
+    ].join('');
   }
 
   function renderizarBI(data) {

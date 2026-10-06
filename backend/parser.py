@@ -16,6 +16,7 @@ import spec_reader
 import validator
 import xlsx_writer
 from ct_rules import gerar_plano_ct
+from planejamento import montar_planejamento
 
 
 def _bytes_of(obj):
@@ -93,6 +94,7 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
         "revisao_necessaria": plano["revisao_necessaria"],
         "bi_marcacoes": plano["bi_marcacoes"],
         "legenda": plano["legenda"],
+        "planejamento": montar_planejamento(plano, eep_model, spec_model, ivr_efetivo, tipo_a),
         "casos_teste_empresas": plano_empresas["casos_teste"] if plano_empresas else None,
         # Campos internos, usados apenas por exportar_planilha_para_bytes:
         "_plano": plano,
@@ -120,6 +122,7 @@ def exportar_planilha_para_bytes(dados):
         dados["_spec_model"],
         ivr_code=dados.get("_ivr_code"),
         aba_extra=aba_extra,
+        planejamento=dados.get("planejamento"),
     )
 
     buffer = io.BytesIO()

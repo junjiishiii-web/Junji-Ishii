@@ -700,3 +700,33 @@ h3.section-title {
   .manual-indice { display: none; }
   .manual-conteudo { padding: 8px 16px 32px; }
 }
+
+/* ─── Planejamento detalhado ─── */
+#planejamentoBody { display: flex; flex-direction: column; gap: 16px; }
+.plan-resumo { background: #eaf2fb; border-left: 5px solid #1f4e79; padding: 14px 18px; border-radius: 6px; font-size: 14px; line-height: 1.6; color: #1b2f45; }
+.plan-sec { background: var(--clr-white); border: 1px solid var(--clr-muted); border-radius: var(--radius-sm); padding: 16px 20px; box-shadow: var(--shadow-sm); }
+.plan-sec-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.plan-sec h4 { margin: 0; font-size: 14px; color: #1f4e79; }
+.plan-fonte { font-size: 11px; color: #7a7a7a; background: #f1f1f1; border-radius: 10px; padding: 2px 9px; white-space: nowrap; }
+.plan-lista { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; }
+.plan-lista li { margin: 4px 0; }
+.plan-vazio { color: #888; font-style: italic; font-size: 13px; margin: 4px 0; }
+.plan-ident { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 20px; }
+.plan-ident div { display: flex; flex-direction: column; font-size: 13px; }
+.plan-ident span { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: #7a7a7a; }
+.plan-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.plan-tiles div { background: #f4f7fb; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; }
+.plan-tiles strong { font-size: 20px; color: #1f4e79; }
+.plan-tiles span { font-size: 11px; color: #666; }
+.plan-tabela { margin-top: 6px; }
+.plan-riscos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.risco { font-size: 13px; line-height: 1.5; padding: 8px 12px; border-radius: 6px; border-left: 4px solid #999; background: #f7f7f7; }
+.risco.alto { border-color: #c0392b; background: #fdf0ee; }
+.risco.medio { border-color: #e0a100; background: #fff8e6; }
+.risco.baixo { border-color: #2e8b57; background: #eef8f1; }
+.risco-nivel { font-size: 10px; font-weight: 700; letter-spacing: .5px; margin-right: 8px; padding: 1px 7px; border-radius: 9px; background: rgba(0,0,0,.08); }
+.plan-lacunas { background: #fffbea; border-color: #f0d36b; }
+.plan-sec .plan-grid { margin-bottom: 0; }
+.plan-sec .plan-card { box-shadow: none; }
+.plan-sec .plan-card .plan-lista { padding-left: 18px; }
+@media (max-width: 900px) { .plan-sec .plan-grid { grid-template-columns: 1fr; } .plan-card.saida { grid-column: auto; } }
