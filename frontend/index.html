@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261012" />
+  <link rel="stylesheet" href="style.css?v=20261013" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -170,6 +170,7 @@
             <tr>
               <th style="width:120px;">ScriptPoint</th>
               <th>Descrição da Marcação</th>
+              <th style="width:200px;">Estado da marcação</th>
               <th style="width:160px;">CT Cobertura</th>
             </tr>
           </thead>
@@ -312,7 +313,7 @@
             <tr><th>Aba</th><th>Para que serve</th></tr>
             <tr><td><strong>Geral</strong></td><td>Projeto/IVR, total de CTs, chaves sistêmicas do EEP, um cartão por CT (mapeado ou “SP pendente”) e o histórico de alterações por estado.</td></tr>
             <tr><td><strong>Planejamento</strong></td><td>Critérios de entrada, falha e saída da homologação.</td></tr>
-            <tr><td><strong>Marcações de BI</strong></td><td>ScriptPoints marcados na VersionamentoBI para o projeto e qual CT cobre cada um.</td></tr>
+            <tr><td><strong>Marcações de BI</strong></td><td>ScriptPoints marcados na VersionamentoBI para o projeto, o estado de cada marcação e qual CT cobre cada um.</td></tr>
             <tr><td><strong>Massa de Testes</strong></td><td>Tabela dos CTs com perfil/condição de entrada, contrato, avaliação e comentários.</td></tr>
             <tr><td><strong>Legenda</strong></td><td>Cores dos blocos da modelagem e VDNs de transferência extraídos do EEP.</td></tr>
             <tr><td><strong>Cenários (BDD)</strong></td><td>O roteiro completo de cada CT: Gherkin, pré-requisito e tabela de steps (ação, estado/prompt, resultado esperado). O botão <em>📋 Copiar</em> copia os steps do CT.</td></tr>
@@ -1249,11 +1250,12 @@
         <tr${semCt ? ' style="background:#fff4e5;"' : ''}>
           <td><strong>${escHtml(sp.codigo)}</strong></td>
           <td>${escHtml(sp.descricao)}</td>
+          <td>${escHtml(sp.estado || '—')}</td>
           <td>${escHtml(sp.ct)}</td>
         </tr>`;
     });
     if (!data.bi_marcacoes || data.bi_marcacoes.length === 0) {
-      biBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#888; font-style:italic; padding:20px;">
+      biBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:20px;">
         Nenhum ScriptPoint novo encontrado na aba Versionamento BI.</td></tr>`;
     }
 

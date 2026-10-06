@@ -88,8 +88,8 @@ def _escrever_planejamento(wb, plano, eep_model):
 
 def _escrever_bi_marcacoes(wb, plano):
     ws = wb.create_sheet("BI_Marcacoes")
-    headers = ["ScriptPoint", "Descrição da Marcação (Versionamento BI)", "CT Cobertura"]
-    larguras = [14, 60, 20]
+    headers = ["ScriptPoint", "Descrição da Marcação (Versionamento BI)", "Estado da marcação", "CT Cobertura"]
+    larguras = [14, 60, 28, 20]
     for i, (h, w) in enumerate(zip(headers, larguras), start=1):
         ws.column_dimensions[chr(64 + i)].width = w
         cell = ws.cell(row=1, column=i, value=h)
@@ -98,7 +98,8 @@ def _escrever_bi_marcacoes(wb, plano):
     for i, linha in enumerate(plano["bi_marcacoes"], start=2):
         ws.cell(row=i, column=1, value=linha["codigo"])
         ws.cell(row=i, column=2, value=linha["descricao"])
-        ws.cell(row=i, column=3, value=linha["ct"])
+        ws.cell(row=i, column=3, value=linha.get("estado") or "—")
+        ws.cell(row=i, column=4, value=linha["ct"])
 
 
 def _escrever_legenda(wb, plano):

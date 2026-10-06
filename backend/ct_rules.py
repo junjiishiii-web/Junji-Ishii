@@ -1160,13 +1160,34 @@ class GeradorCT:
             )
 
     def bi_marcacoes(self):
+        estado_do_ct = {c["ct_id"]: c["estado"] for c in self.casos_teste}
+
+        def _estados_dos_cts(cts):
+            vistos = []
+            for ct in cts:
+                e = estado_do_ct.get(ct)
+                if e and e not in vistos:
+                    vistos.append(e)
+            return ", ".join(vistos) if vistos else "—"
+
         linhas = []
         for sp in self.spec_model.get("versionamento_bi", []):
             cts = self._sp_bi_cobertura.get(sp["codigo"], [])
-            linhas.append({"codigo": sp["codigo"], "descricao": sp["descricao"], "ct": ", ".join(cts) if cts else "—"})
+            # Estado da marcacao: o da linha da VersionamentoBI; sem ele, o do(s) CT(s) que cobrem o SP.
+            estado = (sp.get("estado") or "").strip() or _estados_dos_cts(cts)
+            linhas.append(
+                {"codigo": sp["codigo"], "descricao": sp["descricao"], "estado": estado, "ct": ", ".join(cts) if cts else "—"}
+            )
         for codigo, cts in self._sp_bi_cobertura.items():
             if not any(l["codigo"] == codigo for l in linhas):
-                linhas.append({"codigo": codigo, "descricao": "(marcado apenas na aba do estado, sem entrada correspondente em VersionamentoBI)", "ct": ", ".join(cts)})
+                linhas.append(
+                    {
+                        "codigo": codigo,
+                        "descricao": "(marcado apenas na aba do estado, sem entrada correspondente em VersionamentoBI)",
+                        "estado": _estados_dos_cts(cts),
+                        "ct": ", ".join(cts),
+                    }
+                )
         return linhas
 
     def legenda_blocos(self):
