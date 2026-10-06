@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261010" />
+  <link rel="stylesheet" href="style.css?v=20261011" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -216,6 +216,7 @@
         <div class="exec-acoes">
           <span id="execResumo" class="exec-resumo"></span>
           <button class="btn-export-pdf" id="btnExportPdf" onclick="exportarExecucaoPDF()">📄 Exportar PDF</button>
+          <button class="btn-export-pdf" id="btnExportZip" onclick="baixarZipEvidencias(false)" title="Baixa só as evidências, organizadas por CT">📦 Evidências (.zip)</button>
         </div>
       </div>
       <div class="exec-progresso">
@@ -835,12 +836,98 @@
         }
       } catch (e) {}
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-      const ev = { id, nome: arq.name, tamanho: arq.size, tipo: arq.type, blob: arq };
+      const ev = { id, nome: _nomeEvidenciaUnico(arq.name, lista), tamanho: arq.size, tipo: arq.type, blob: arq };
       lista.push(ev);
       await persistir(() => dbPut('evidencias', { chave: ctId + '|' + id, ct_id: ctId, criadoEm: Date.now(), ...ev }));
     }
     renderEvidencias(ctId);
     if (rejeitados.length) alert('Algumas evidências não foram anexadas:\n\n' + rejeitados.join('\n'));
+  }
+
+  // Mesmo saneamento do servidor (para os links do PDF baterem com os arquivos do ZIP)
+  function _nomeEvidenciaSeguro(nome) {
+    let base = String(nome || '').replace(/\\/g, '/').split('/').pop();
+    base = base.replace(/[^\p{L}\p{N}_.\- ()]/gu, '_').replace(/^[ .]+|[ .]+$/g, '');
+    return base.slice(0, 120) || 'evidencia.txt';
+  }
+  function _nomeEvidenciaUnico(nome, lista) {
+    const seguro = _nomeEvidenciaSeguro(nome);
+    const usados = new Set(lista.map(e => e.nome));
+    if (!usados.has(seguro)) return seguro;
+    const ponto = seguro.lastIndexOf('.');
+    const raiz = ponto > 0 ? seguro.slice(0, ponto) : seguro;
+    const ext = ponto > 0 ? seguro.slice(ponto) : '';
+    for (let n = 2; ; n++) {
+      const cand = `${raiz} (${n})${ext}`;
+      if (!usados.has(cand)) return cand;
+    }
+  }
+
+  /* ZIP "store" (sem compressao) montado no navegador: evidencias/<CT>/<arquivo> */
+  const _CRC_TABELA = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function _crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = _CRC_TABELA[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  async function _montarZip(entradas) {
+    const enc = new TextEncoder();
+    const agora = new Date();
+    const dosTime = (agora.getHours() << 11) | (agora.getMinutes() << 5) | (agora.getSeconds() >> 1);
+    const dosDate = ((agora.getFullYear() - 1980) << 9) | ((agora.getMonth() + 1) << 5) | agora.getDate();
+    const partes = [], central = [];
+    let offset = 0, tamCentral = 0;
+    for (const { caminho, blob } of entradas) {
+      const nome = enc.encode(caminho);
+      const dados = new Uint8Array(await blob.arrayBuffer());
+      const crc = _crc32(dados);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(8, 0, true); lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, dados.length, true); lh.setUint32(22, dados.length, true);
+      lh.setUint16(26, nome.length, true); lh.setUint16(28, 0, true);
+      partes.push(lh.buffer, nome, dados);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+      ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, dados.length, true); ch.setUint32(24, dados.length, true);
+      ch.setUint16(28, nome.length, true); ch.setUint32(42, offset, true);
+      central.push(ch.buffer, nome);
+      tamCentral += 46 + nome.length;
+      offset += 30 + nome.length + dados.length;
+    }
+    const fim = new DataView(new ArrayBuffer(22));
+    fim.setUint32(0, 0x06054b50, true); fim.setUint16(8, entradas.length, true); fim.setUint16(10, entradas.length, true);
+    fim.setUint32(12, tamCentral, true); fim.setUint32(16, offset, true);
+    return new Blob([...partes, ...central, fim.buffer], { type: 'application/zip' });
+  }
+
+  async function baixarZipEvidencias(silencioso) {
+    const entradas = [];
+    Object.keys(evidenciasPorCT).forEach(ct => (evidenciasPorCT[ct] || []).forEach(ev => {
+      entradas.push({ caminho: `evidencias/${ct.replace(/[^\p{L}\p{N}_-]/gu, '_')}/${ev.nome}`, blob: ev.blob });
+    }));
+    if (!entradas.length) {
+      if (!silencioso) alert('Nenhuma evidência anexada para baixar.');
+      return false;
+    }
+    const url = URL.createObjectURL(await _montarZip(entradas));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Evidencias_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return true;
   }
 
   function baixarEvidencia(ctId, evId) {
@@ -925,10 +1012,13 @@
         await _baixarPdfLote(lotes[i], i + 1, lotes.length);
         if (i < lotes.length - 1) await _aguardar(700);
       }
-      if (lotes.length > 1) {
-        alert(`O projeto é grande: o PDF foi dividido em ${lotes.length} partes (arquivos "parte1de${lotes.length}" …). ` +
-              'Se o navegador pedir, permita baixar vários arquivos.');
-      }
+      btn.textContent = 'Gerando ZIP…';
+      await _aguardar(700);
+      const temZip = await baixarZipEvidencias(true);
+      let aviso = '';
+      if (lotes.length > 1) aviso += `O projeto é grande: o PDF foi dividido em ${lotes.length} partes ("parte1de${lotes.length}" …). `;
+      if (temZip) aviso += 'As evidências foram baixadas também em um ZIP: extraia-o na MESMA pasta dos PDFs para o clique no nome da evidência abrir o arquivo (o clipe só funciona no Adobe, Foxit e Firefox). ';
+      if (aviso) alert(aviso + 'Se o navegador pedir, permita baixar vários arquivos.');
     } catch (err) {
       alert('Erro ao exportar o PDF: ' + (err && err.message ? err.message : err));
     } finally {

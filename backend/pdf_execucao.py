@@ -7,8 +7,10 @@ Firefox; o visualizador do Chrome/Edge nao oferece esse clique).
 """
 import datetime
 import os
+import re
 import shutil
 import tempfile
+from urllib.parse import quote
 
 from fpdf import FPDF, FontFace
 from fpdf.enums import FileAttachmentAnnotationName, XPos, YPos
@@ -169,7 +171,7 @@ def _desenhar_caso(pdf, caso, evidencias, tmp, avaliacao=None):
         pdf.set_text_color(130, 130, 130)
         pdf.cell(0, 5, _t("Sem evidências anexadas."), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     else:
-        pdf.cell(0, 5, _t(f"Evidências anexadas ({len(evidencias)}) - clique no clipe para abrir/baixar:"),
+        pdf.cell(0, 5, _t(f"Evidências anexadas ({len(evidencias)}) - clique no nome para abrir (pasta evidencias/ do ZIP):"),
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", "", 8.5)
         pdf.set_text_color(30, 30, 30)
@@ -184,5 +186,12 @@ def _desenhar_caso(pdf, caso, evidencias, tmp, avaliacao=None):
             y = pdf.get_y()
             pdf.file_attachment_annotation(caminho, x=pdf.l_margin + 1, y=y + 0.4, w=4.5, h=4.5, name=FileAttachmentAnnotationName.PAPERCLIP_TAG)
             pdf.set_x(pdf.l_margin + 8)
-            pdf.cell(0, 5.4, _t(f"{ev['nome']}  ({_tamanho(len(ev['dados']))})"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            # Link relativo: abre o arquivo da pasta evidencias/<CT>/ do ZIP exportado
+            # junto (extraido ao lado do PDF); o clipe continua valendo no Adobe/Foxit/Firefox.
+            pasta_ct = re.sub(r"[^\w-]", "_", caso["ct_id"])
+            destino = f"evidencias/{pasta_ct}/{quote(ev['nome'])}"
+            pdf.set_text_color(5, 80, 170)
+            pdf.cell(0, 5.4, _t(f"{ev['nome']}  ({_tamanho(len(ev['dados']))})"), link=destino,
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.set_text_color(30, 30, 30)
     pdf.ln(5)
