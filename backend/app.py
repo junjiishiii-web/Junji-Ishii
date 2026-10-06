@@ -405,9 +405,9 @@ def relatorio_validacao(request: Request, response: Response, tipo_a: bool = Tru
 # quem executa (IndexedDB) — o servidor gratuito dorme/reinicia e perderia tudo.
 # Na exportacao, o navegador manda a modelagem, as avaliacoes e as evidencias.
 
-EVID_MAX_ARQUIVO = 5 * 1024 * 1024  # 5MB por arquivo
-EVID_MAX_POR_CT = 10
-EVID_MAX_TOTAL = 30 * 1024 * 1024
+EVID_MAX_ARQUIVO = 25 * 1024 * 1024  # 25MB por arquivo
+EVID_MAX_POR_CT = 20
+EVID_MAX_TOTAL = 50 * 1024 * 1024  # por PDF (o navegador divide projetos grandes em partes)
 EVID_EXTENSOES = {"txt", "log", "csv", "json", "xml", "png", "jpg", "jpeg", "pdf", "docx", "xlsx"}
 STATUS_EXECUCAO = {"pendente", "ok", "nok", "blocked"}
 MAX_CTS_PDF = 2000
@@ -503,6 +503,7 @@ async def exportar_execucao_pdf(
         "projeto_nome": _texto(payload.get("projeto_nome"), 300),
         "jira_ivr": _texto(payload.get("jira_ivr"), 100),
         "casos_teste": casos,
+        "parte": _texto(payload.get("parte"), 120),
     }
     try:
         pdf_bytes = pdf_execucao.gerar_pdf_execucao(projeto, evidencias, avaliacoes)

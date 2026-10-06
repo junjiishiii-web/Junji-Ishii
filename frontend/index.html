@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261009" />
+  <link rel="stylesheet" href="style.css?v=20261010" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -212,12 +212,6 @@
       <div class="exec-toolbar">
         <div>
           <h3 class="section-title" style="margin:0 0 4px;">Execução dos Testes</h3>
-          <p class="exec-nota">
-            Classifique cada CT, informe o bug aberto e anexe as evidências (.txt, .log, imagens, PDF…; até 5&nbsp;MB cada,
-            30&nbsp;MB no total). <strong>Tudo é salvo automaticamente neste navegador</strong>: F5, fechar a aba ou voltar
-            amanhã não perde nada. Só o botão <em>Nova Modelagem</em> apaga. Em outro computador ou ao limpar os dados do
-            navegador o trabalho não acompanha — use <em>Exportar PDF</em> como registro.
-          </p>
         </div>
         <div class="exec-acoes">
           <span id="execResumo" class="exec-resumo"></span>
@@ -811,9 +805,13 @@
   }
 
   const EVID_EXT = ['txt', 'log', 'csv', 'json', 'xml', 'png', 'jpg', 'jpeg', 'pdf', 'docx', 'xlsx'];
-  const EVID_MAX_ARQ = 5 * 1024 * 1024;
-  const EVID_MAX_CT = 10;
-  const EVID_MAX_TOTAL = 30 * 1024 * 1024;
+  const MB = 1024 * 1024;
+  const EVID_MAX_ARQ = 25 * MB;        // por arquivo
+  const EVID_MAX_CT = 20;              // arquivos por CT
+  const EVID_MAX_BYTES_CT = 50 * MB;   // por CT (cada CT cabe inteiro em um PDF)
+  const EVID_MAX_TOTAL = 500 * MB;     // total guardado no navegador
+  const PDF_LOTE_BYTES = 40 * MB;      // evidencias por PDF (o PDF e dividido em partes)
+  const PDF_LOTE_CTS = 100;            // CTs por PDF
 
   async function anexarEvidencias(ctId, input) {
     const arquivos = Array.from(input.files || []);
@@ -825,9 +823,17 @@
       const ext = (arq.name.split('.').pop() || '').toLowerCase();
       const totalBytes = Object.values(evidenciasPorCT).flat().reduce((n, e) => n + e.tamanho, 0);
       if (!EVID_EXT.includes(ext)) { rejeitados.push(`${arq.name}: tipo não permitido (use ${EVID_EXT.join(', ')})`); continue; }
-      if (arq.size > EVID_MAX_ARQ) { rejeitados.push(`${arq.name}: passa de 5 MB`); continue; }
+      const bytesCT = lista.reduce((n, e) => n + e.tamanho, 0);
+      if (arq.size > EVID_MAX_ARQ) { rejeitados.push(`${arq.name}: passa de ${EVID_MAX_ARQ / MB} MB`); continue; }
       if (lista.length >= EVID_MAX_CT) { rejeitados.push(`${arq.name}: máximo de ${EVID_MAX_CT} evidências por CT`); continue; }
-      if (totalBytes + arq.size > EVID_MAX_TOTAL) { rejeitados.push(`${arq.name}: limite de 30 MB de evidências no total`); continue; }
+      if (bytesCT + arq.size > EVID_MAX_BYTES_CT) { rejeitados.push(`${arq.name}: este CT passaria de ${EVID_MAX_BYTES_CT / MB} MB de evidências`); continue; }
+      if (totalBytes + arq.size > EVID_MAX_TOTAL) { rejeitados.push(`${arq.name}: limite de ${EVID_MAX_TOTAL / MB} MB de evidências no total`); continue; }
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const { quota, usage } = await navigator.storage.estimate();
+          if (quota && usage + arq.size > quota * 0.9) { rejeitados.push(`${arq.name}: sem espaço no armazenamento do navegador`); continue; }
+        }
+      } catch (e) {}
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
       const ev = { id, nome: arq.name, tamanho: arq.size, tipo: arq.type, blob: arq };
       lista.push(ev);
@@ -856,39 +862,73 @@
     renderEvidencias(ctId);
   }
 
+  // Divide os CTs em lotes (por tamanho de evidencias e quantidade de CTs) para
+  // cada PDF caber numa requisicao ao servidor; projetos grandes saem em partes.
+  function _lotesExportacao() {
+    const casos = cacheModelagem.casos_teste;
+    const lotes = [];
+    let atual = [], bytes = 0;
+    casos.forEach(c => {
+      const b = (evidenciasPorCT[c.ct_id] || []).reduce((n, e) => n + e.tamanho, 0);
+      if (atual.length && (bytes + b > PDF_LOTE_BYTES || atual.length >= PDF_LOTE_CTS)) {
+        lotes.push(atual); atual = []; bytes = 0;
+      }
+      atual.push(c); bytes += b;
+    });
+    if (atual.length) lotes.push(atual);
+    return lotes;
+  }
+
+  async function _baixarPdfLote(casos, parte, partes) {
+    const fd = new FormData();
+    const ids = new Set(casos.map(c => c.ct_id));
+    const avaliacoes = {};
+    casos.forEach(c => { if (avaliacoesQA[c.ct_id]) avaliacoes[c.ct_id] = avaliacoesQA[c.ct_id]; });
+    fd.append('dados', JSON.stringify({
+      projeto_nome: cacheModelagem.projeto_nome,
+      jira_ivr: cacheModelagem.jira_ivr,
+      casos_teste: casos,
+      avaliacoes,
+      parte: partes > 1 ? `${parte} de ${partes} (${casos[0].ct_id} a ${casos[casos.length - 1].ct_id})` : '',
+    }));
+    const meta = [];
+    Object.keys(evidenciasPorCT).filter(ct => ids.has(ct)).forEach(ct => evidenciasPorCT[ct].forEach(ev => {
+      meta.push({ ct_id: ct, nome: ev.nome });
+      fd.append('files', ev.blob, ev.nome);
+    }));
+    fd.append('evidencias_meta', JSON.stringify(meta));
+
+    const resp = await fetch(`${API}/api/exportar-execucao-pdf`, { method: 'POST', body: fd, credentials: 'same-origin' });
+    if (!resp.ok) {
+      const res = await resp.json().catch(() => null);
+      throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
+    }
+    const url = URL.createObjectURL(await resp.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    const base = `Execucao_dos_Testes_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}`;
+    a.download = partes > 1 ? `${base}_parte${parte}de${partes}.pdf` : `${base}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
   async function exportarExecucaoPDF() {
     const btn = document.getElementById('btnExportPdf');
     const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = 'Gerando PDF…';
     try {
-      const fd = new FormData();
-      fd.append('dados', JSON.stringify({
-        projeto_nome: cacheModelagem.projeto_nome,
-        jira_ivr: cacheModelagem.jira_ivr,
-        casos_teste: cacheModelagem.casos_teste,
-        avaliacoes: avaliacoesQA,
-      }));
-      const meta = [];
-      Object.keys(evidenciasPorCT).forEach(ct => evidenciasPorCT[ct].forEach(ev => {
-        meta.push({ ct_id: ct, nome: ev.nome });
-        fd.append('files', ev.blob, ev.nome);
-      }));
-      fd.append('evidencias_meta', JSON.stringify(meta));
-
-      const resp = await fetch(`${API}/api/exportar-execucao-pdf`, { method: 'POST', body: fd, credentials: 'same-origin' });
-      if (!resp.ok) {
-        const res = await resp.json().catch(() => null);
-        throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
+      const lotes = _lotesExportacao();
+      for (let i = 0; i < lotes.length; i++) {
+        btn.textContent = lotes.length > 1 ? `Gerando PDF ${i + 1}/${lotes.length}…` : 'Gerando PDF…';
+        await _baixarPdfLote(lotes[i], i + 1, lotes.length);
+        if (i < lotes.length - 1) await _aguardar(700);
       }
-      const url = URL.createObjectURL(await resp.blob());
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Execucao_dos_Testes_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      if (lotes.length > 1) {
+        alert(`O projeto é grande: o PDF foi dividido em ${lotes.length} partes (arquivos "parte1de${lotes.length}" …). ` +
+              'Se o navegador pedir, permita baixar vários arquivos.');
+      }
     } catch (err) {
       alert('Erro ao exportar o PDF: ' + (err && err.message ? err.message : err));
     } finally {

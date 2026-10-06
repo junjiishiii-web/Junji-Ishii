@@ -87,6 +87,7 @@ def gerar_pdf_execucao(dados, evidencias_por_ct, avaliacoes=None):
         ("Projeto", dados.get("projeto_nome") or "-"),
         ("IVR / JIRA", dados.get("jira_ivr") or "-"),
         ("Gerado em", datetime.datetime.now().strftime("%d/%m/%Y %H:%M")),
+        *([("Parte", dados["parte"])] if dados.get("parte") else []),
         ("Casos de teste", str(len(casos))),
         ("Evidências anexadas", str(total_evid)),
         ("Status", "  |  ".join(f"{_STATUS[k][0]}: {v}" for k, v in contagem.items())),
