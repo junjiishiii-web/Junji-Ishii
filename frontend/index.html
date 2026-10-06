@@ -88,6 +88,7 @@
   <div class="tab-bar" id="tabBar">
     <button class="tab-btn active" onclick="switchExcelTab('tabCapa', this)">Geral</button>
     <button class="tab-btn" onclick="switchExcelTab('tabPlanejamento', this)">Planejamento</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabBI', this)">Marcações de BI</button>
     <button class="tab-btn" onclick="switchExcelTab('tabMassa', this)">Massa de Testes</button>
     <button class="tab-btn" onclick="switchExcelTab('tabLegenda', this)">Legenda</button>
     <button class="tab-btn" onclick="switchExcelTab('tabCenarios', this)">Cenários (BDD)</button>
@@ -129,22 +130,6 @@
         </table>
       </div>
 
-      <hr class="capa-divider" />
-
-      <!-- BI Marcações -->
-      <h3 class="section-title">ScriptPoints Marcados (Versionamento BI)</h3>
-      <div class="history-table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="width:120px;">ScriptPoint</th>
-              <th>Descrição da Marcação</th>
-              <th style="width:160px;">CT Cobertura</th>
-            </tr>
-          </thead>
-          <tbody id="biMarcacoesBody"></tbody>
-        </table>
-      </div>
     </div>
 
     <!-- PLANEJAMENTO -->
@@ -165,6 +150,24 @@
         </div>
       </div>
       <div id="planejamentoExtra"></div>
+    </div>
+
+    <!-- MARCAÇÕES DE BI -->
+    <div class="sheet-panel" id="tabBI">
+      <h3 class="section-title">ScriptPoints Marcados (Versionamento BI)</h3>
+      <p id="biResumo" style="font-size:12px; color:#666; margin-bottom:12px;"></p>
+      <div class="history-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:120px;">ScriptPoint</th>
+              <th>Descrição da Marcação</th>
+              <th style="width:160px;">CT Cobertura</th>
+            </tr>
+          </thead>
+          <tbody id="biMarcacoesBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- MASSA DE TESTES -->
@@ -529,9 +532,15 @@
     // BI Marcações
     const biBody = document.getElementById('biMarcacoesBody');
     biBody.innerHTML = "";
-    (data.bi_marcacoes || []).forEach(sp => {
+    const biLista = data.bi_marcacoes || [];
+    const biSemCt = biLista.filter(sp => sp.ct === '—').length;
+    document.getElementById('biResumo').textContent = biLista.length
+      ? `${biLista.length} ScriptPoint(s) marcados · ${biLista.length - biSemCt} coberto(s) por CT · ${biSemCt} sem CT`
+      : '';
+    biLista.forEach(sp => {
+      const semCt = sp.ct === '—';
       biBody.innerHTML += `
-        <tr>
+        <tr${semCt ? ' style="background:#fff4e5;"' : ''}>
           <td><strong>${escHtml(sp.codigo)}</strong></td>
           <td>${escHtml(sp.descricao)}</td>
           <td>${escHtml(sp.ct)}</td>
