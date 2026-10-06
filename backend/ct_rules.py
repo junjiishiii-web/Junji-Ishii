@@ -1190,7 +1190,13 @@ class GeradorCT:
         d = self.spec_model.get("diag_versionamento") or {}
         abas = ", ".join(d.get("abas") or []) or "nenhuma aba de versionamento encontrada"
         ivrs = ", ".join(d.get("ultimos_ivrs") or []) or "nenhum código IVR lido"
-        return f"[Diagnóstico] Abas de versionamento: {abas}. Últimos IVRs citados nelas: {ivrs}."
+        sug = self.spec_model.get("ivr_sugerido")
+        dica = (
+            f" Pelo nome do projeto no EEP, parece ser o {sug}: troque o código no campo IVR (ou deixe em branco)."
+            if sug
+            else " Se você trocou de projeto, confira se o campo IVR e os arquivos (SPEC e EEP) são do mesmo projeto."
+        )
+        return f"[Diagnóstico] Abas de versionamento: {abas}. Últimos IVRs citados nelas: {ivrs}.{dica}"
 
     def gerar(self, itens_cor=None):
         if self.tipo_a:

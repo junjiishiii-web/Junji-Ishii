@@ -717,6 +717,14 @@ def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="",
     versionamento = parse_versionamento(wb, ivr_code)
     versionamento_bi = parse_versionamento_bi(wb, ivr_code)
 
+    # Codigo informado que nao existe nesta SPEC: ve se o nome do projeto do EEP
+    # aponta para outro bloco — so para SUGERIR ao usuario (nunca usa sozinho).
+    ivr_sugerido = None
+    if (ivr_code or "").strip() and not versionamento.get("estados_alterados") and not versionamento_bi:
+        sugerido, _ = descobrir_ivr(wb, eep_nome, eep_filename, eep_jira)
+        if sugerido and sugerido.upper() != ivr_code.strip().upper():
+            ivr_sugerido = sugerido
+
     return {
         "lista_abas": lista_abas,
         "estados": estados,
@@ -726,6 +734,7 @@ def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="",
         "ivr_resolvido": ivr_code,
         "ivr_origem": ivr_origem,
         "diag_versionamento": _diagnostico_versionamento(wb),
+        "ivr_sugerido": ivr_sugerido,
     }
 
 

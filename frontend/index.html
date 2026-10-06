@@ -476,6 +476,7 @@
       if (!ok) return;
     }
     await limparTrabalhoSalvo();
+    document.getElementById('ivrCodeInput').value = '';
     cacheModelagem = null;
     avaliacoesQA = {};
     evidenciasPorCT = {};
