@@ -668,3 +668,4 @@ h3.section-title {
 .leg-total { margin-left: auto; color: #555; font-weight: 600; font-size: 12px; }
 .exec-salvo { margin-top: 6px; font-size: 11px; color: #2d7a2d; }
 .exec-salvo.alerta { color: #a15c00; font-weight: 700; }
+.capa-alerta-vazio{background:#fdecea;border:1px solid #d93025;color:#7a1a12;padding:12px 16px;border-radius:6px;margin:0 0 16px;font-size:14px;line-height:1.45;}

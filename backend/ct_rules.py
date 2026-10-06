@@ -755,7 +755,8 @@ class GeradorCT:
                         "detalhe": f"Não encontrei estados alterados nem ScriptPoints do {ivr_usado} nas abas de "
                         "Versionamento e Versionamento BI (conferi variações como 'IVR-N' e 'IVR- N'). Nenhum CT "
                         "foi gerado para não modelar um estado que não é do projeto. Confira o código IVR, o nome "
-                        "das abas de versionamento e se o bloco do projeto está preenchido.",
+                        "das abas de versionamento e se o bloco do projeto está preenchido. "
+                        + self._resumo_diag_versionamento(),
                     }
                 )
                 estados_alterados = []
@@ -1184,6 +1185,12 @@ class GeradorCT:
                 }
             )
         return legenda
+
+    def _resumo_diag_versionamento(self):
+        d = self.spec_model.get("diag_versionamento") or {}
+        abas = ", ".join(d.get("abas") or []) or "nenhuma aba de versionamento encontrada"
+        ivrs = ", ".join(d.get("ultimos_ivrs") or []) or "nenhum código IVR lido"
+        return f"[Diagnóstico] Abas de versionamento: {abas}. Últimos IVRs citados nelas: {ivrs}."
 
     def gerar(self, itens_cor=None):
         if self.tipo_a:

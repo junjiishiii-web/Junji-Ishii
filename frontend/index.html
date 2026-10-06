@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261007" />
+  <link rel="stylesheet" href="style.css?v=20261008" />
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -105,6 +105,7 @@
     <!-- CAPA / GERAL -->
     <div class="sheet-panel active" id="tabCapa">
 
+      <div id="capaAlertaVazio" class="capa-alerta-vazio" style="display:none;"></div>
       <div class="capa-header">
         <div class="capa-meta-line"><strong>Projeto / JIRA</strong>: <span id="capaJira">—</span></div>
         <div class="capa-meta-line"><strong>Total de Casos de Teste Gerados:</strong> <span id="capaTotalCTs">—</span></div>
@@ -893,6 +894,15 @@
 
     document.getElementById('capaJira').textContent    = data.jira_ivr;
     document.getElementById('capaTotalCTs').textContent = `${data.casos_teste.length} CTs funcionais mapeados diretamente`;
+    const alertaVazio = document.getElementById('capaAlertaVazio');
+    if (!data.casos_teste.length) {
+      const motivo = (data.revisao_necessaria || []).find(r => r.tipo === 'versionamento_vazio');
+      alertaVazio.innerHTML = '<strong>⚠️ Nenhum CT foi gerado.</strong> ' +
+        escHtml(motivo ? motivo.detalhe : 'Veja a aba Revisão Necessária para o motivo.');
+      alertaVazio.style.display = 'block';
+    } else {
+      alertaVazio.style.display = 'none';
+    }
     document.getElementById('capaChaves').textContent   = chaves_unidas;
 
     // Audit cards

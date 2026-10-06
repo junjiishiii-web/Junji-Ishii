@@ -387,12 +387,21 @@ def _find_ivr_block_rows(linhas, ivr_code):
     return achadas
 
 
-def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "Versionamento")):
-    aba = None
+def _achar_aba_versionamento(wb, aba_candidatas, bi):
+    """Nome exato primeiro; depois qualquer aba cujo nome (sem espacos/_/-)
+    contenha "versionamento" — com "bi" so para a aba de BI."""
     for nome in aba_candidatas:
         if nome in wb.sheetnames:
-            aba = wb[nome]
-            break
+            return wb[nome]
+    for nome in wb.sheetnames:
+        limpo = re.sub(r"[\s_\-]+", "", nome).lower()
+        if "versionamento" in limpo and limpo.endswith("bi") == bi:
+            return wb[nome]
+    return None
+
+
+def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "Versionamento")):
+    aba = _achar_aba_versionamento(wb, aba_candidatas, bi=False)
     if not aba:
         return {"versao": None, "ivr": None, "responsavel": None, "estados_alterados": []}
 
@@ -457,11 +466,7 @@ def parse_versionamento_bi(wb, ivr_code=None, aba_candidatas=("VersionamentoBI",
     OUTRAS versoes/projetos entram como se fossem novos desta, inflando os
     CTs gerados com ScriptPoints que nao fazem parte do escopo do projeto.
     """
-    aba = None
-    for nome in aba_candidatas:
-        if nome in wb.sheetnames:
-            aba = wb[nome]
-            break
+    aba = _achar_aba_versionamento(wb, aba_candidatas, bi=True)
     if not aba:
         return []
 
@@ -675,6 +680,20 @@ def descobrir_ivr(wb, nome_projeto=None, eep_filename="", eep_jira=""):
     return None, None
 
 
+def _diagnostico_versionamento(wb):
+    """Resumo do que existe nas abas de versionamento, para explicar um
+    resultado vazio (abas encontradas e os ultimos codigos IVR citados)."""
+    abas = [n for n in wb.sheetnames if "versionamento" in n.lower()]
+    codigos = []
+    for nome in abas:
+        for linha in _materializar_linhas(wb[nome], 10):
+            for val in linha:
+                for m in re.finditer(r"IVR\W*(\d{5,7})", str(val or ""), re.IGNORECASE):
+                    if m.group(1) not in codigos:
+                        codigos.append(m.group(1))
+    return {"abas": abas, "ultimos_ivrs": [f"IVR-{c}" for c in codigos[-6:]], "total_ivrs": len(codigos)}
+
+
 def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="", eep_jira=""):
     """Le a SPEC inteira e devolve o modelo estrutural cru (sem regras de CT ainda)."""
     wb = _abrir_workbook(spec_path_or_bytes)
@@ -706,6 +725,7 @@ def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="",
         "versionamento_bi": versionamento_bi,
         "ivr_resolvido": ivr_code,
         "ivr_origem": ivr_origem,
+        "diag_versionamento": _diagnostico_versionamento(wb),
     }
 
 
