@@ -35,6 +35,10 @@ class SessaoDados:
             "elapsed": 0.0,
         }
         self.resultado = None
+        # Evidencias anexadas na aba "Execucao dos Testes":
+        # {ct_id: [{"id", "nome", "tipo", "dados": bytes}]}. Ficam so na memoria
+        # da sessao (some junto com ela) — o PDF exportado e o registro final.
+        self.evidencias = {}
         self.ultimo_acesso = time.time()
 
     def atualizar_progresso(self, **kwargs):

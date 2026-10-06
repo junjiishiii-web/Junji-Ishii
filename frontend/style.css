@@ -562,3 +562,61 @@ h3.section-title {
   color: var(--clr-dark);
   margin-bottom: 16px;
 }
+
+/* ─── EXECUÇÃO DOS TESTES ───────────────────────────────── */
+.exec-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.exec-nota { font-size: 12px; color: #666; max-width: 640px; margin: 0; line-height: 1.45; }
+.exec-acoes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.exec-resumo { font-size: 12px; font-weight: 600; color: #333; }
+.btn-export-pdf {
+  padding: 8px 16px;
+  border: 1px solid var(--clr-navy);
+  background: var(--clr-navy);
+  color: var(--clr-white);
+  border-radius: var(--radius-sm);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-export-pdf:hover { opacity: 0.9; }
+.btn-export-pdf:disabled { opacity: 0.55; cursor: wait; }
+
+.eval-inline { display: inline-flex; align-items: center; }
+.exec-controles {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr);
+  gap: 14px;
+  margin: 4px 0 22px;
+}
+.exec-campo { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: #444; }
+.exec-campo .massa-input { background: #fff; font-family: 'Montserrat', sans-serif; }
+.evidencias-box { border: 1px dashed var(--clr-muted); border-radius: var(--radius-sm); padding: 8px 10px; background: #FAFBFD; }
+.evidencias-titulo { font-size: 11px; font-weight: 700; color: var(--clr-navy); margin-bottom: 6px; }
+.evidencias-lista { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.evid-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.evid-link { color: var(--clr-navy); font-weight: 600; text-decoration: none; word-break: break-all; }
+.evid-link:hover { text-decoration: underline; }
+.evid-tam { color: #888; font-size: 11px; white-space: nowrap; }
+.evid-rem { border: none; background: transparent; color: #8A0000; cursor: pointer; font-size: 13px; padding: 0 4px; }
+.evid-vazio { color: #999; font-size: 12px; font-style: italic; }
+.btn-evid {
+  display: inline-block;
+  padding: 5px 10px;
+  border: 1px solid var(--clr-navy);
+  border-radius: var(--radius-sm);
+  color: var(--clr-navy);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fff;
+}
+.btn-evid:hover { background: var(--clr-navy); color: var(--clr-white); }
+@media (max-width: 760px) { .exec-controles { grid-template-columns: 1fr; } }

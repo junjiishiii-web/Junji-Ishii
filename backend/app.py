@@ -10,7 +10,10 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Response
+import re
+from typing import List
+from urllib.parse import quote
+from fastapi import Body, FastAPI, UploadFile, File, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import sessions
+import pdf_execucao
 from parser import gerar_modelagem_testes_completa, dados_para_frontend, exportar_planilha_para_bytes
 
 _LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "ModelerAssistant", "logs")
@@ -330,6 +334,7 @@ def iniciar_modelagem(request: Request, response: Response, tipo_a: bool = True,
             {"percentual": 0, "etapa": "Iniciando...", "concluido": False, "erro": None, "inicio": _time.time(), "elapsed": 0.0}
         )
     sessao.resultado = None
+    sessao.evidencias = {}
 
     thread = threading.Thread(target=_rodar_modelagem_em_thread, args=(sessao, tipo_a, ivr_code), daemon=True)
     thread.start()
@@ -394,6 +399,134 @@ def relatorio_validacao(request: Request, response: Response, tipo_a: bool = Tru
             detail=f"Erro ao validar planilha: {type(e).__name__}: {e}. Detalhes em {_BACKEND_LOG}",
         )
     return relatorio
+
+
+# ---------- Execucao dos testes: evidencias por CT + exportacao em PDF ----------
+
+EVID_MAX_ARQUIVO = 5 * 1024 * 1024  # 5MB por arquivo
+EVID_MAX_POR_CT = 10
+EVID_MAX_TOTAL = 30 * 1024 * 1024  # 30MB por sessao (o servidor gratuito tem pouca RAM)
+EVID_EXTENSOES = {"txt", "log", "csv", "json", "xml", "png", "jpg", "jpeg", "pdf", "docx", "xlsx"}
+STATUS_EXECUCAO = {"pendente", "ok", "nok", "blocked"}
+
+
+def _nome_seguro(nome):
+    base = os.path.basename((nome or "").replace("\\", "/"))
+    base = re.sub(r"[^\w.\- ()]", "_", base).strip(" .")
+    return base[:120] or "evidencia.txt"
+
+
+def _ct_existe(sessao, ct_id):
+    casos = (sessao.resultado or {}).get("casos_teste") or []
+    if not any(c["ct_id"] == ct_id for c in casos):
+        raise HTTPException(status_code=404, detail=f"CT '{ct_id}' não existe na modelagem atual.")
+
+
+def _evidencias_publicas(sessao, ct_id):
+    return [
+        {"id": e["id"], "nome": e["nome"], "tamanho": len(e["dados"])}
+        for e in sessao.evidencias.get(ct_id, [])
+    ]
+
+
+@app.post("/api/evidencias/{ct_id}")
+async def anexar_evidencias(ct_id: str, request: Request, response: Response, files: List[UploadFile] = File(...)):
+    sessao, sid, novo = _sessao_de(request)
+    _aplicar_cookie_se_novo(response, sid, novo)
+    _ct_existe(sessao, ct_id)
+
+    recebidos = []
+    for arq in files:
+        nome = _nome_seguro(arq.filename)
+        ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+        if ext not in EVID_EXTENSOES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{nome}': tipo não permitido. Use: {', '.join(sorted(EVID_EXTENSOES))}.",
+            )
+        dados = await arq.read()
+        if len(dados) > EVID_MAX_ARQUIVO:
+            raise HTTPException(status_code=400, detail=f"'{nome}' passa de {EVID_MAX_ARQUIVO // (1024 * 1024)}MB.")
+        recebidos.append({"id": uuid.uuid4().hex[:10], "nome": nome, "dados": dados})
+
+    atuais = sessao.evidencias.setdefault(ct_id, [])
+    if len(atuais) + len(recebidos) > EVID_MAX_POR_CT:
+        raise HTTPException(status_code=400, detail=f"Máximo de {EVID_MAX_POR_CT} evidências por CT.")
+    total = sum(len(e["dados"]) for lista in sessao.evidencias.values() for e in lista)
+    if total + sum(len(e["dados"]) for e in recebidos) > EVID_MAX_TOTAL:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite de {EVID_MAX_TOTAL // (1024 * 1024)}MB de evidências nesta sessão atingido. "
+            "Exporte o PDF e remova evidências já registradas.",
+        )
+    atuais.extend(recebidos)
+    return {"evidencias": _evidencias_publicas(sessao, ct_id)}
+
+
+@app.get("/api/evidencias")
+def listar_evidencias(request: Request, response: Response):
+    sessao, sid, novo = _sessao_de(request)
+    _aplicar_cookie_se_novo(response, sid, novo)
+    return {ct: _evidencias_publicas(sessao, ct) for ct in sessao.evidencias}
+
+
+@app.get("/api/evidencias/{ct_id}/{evid_id}")
+def baixar_evidencia(ct_id: str, evid_id: str, request: Request):
+    sessao, sid, novo = _sessao_de(request)
+    ev = next((e for e in sessao.evidencias.get(ct_id, []) if e["id"] == evid_id), None)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Evidência não encontrada (a sessão pode ter expirado).")
+    resp = StreamingResponse(
+        io.BytesIO(ev["dados"]),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(ev['nome'])}",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+    _aplicar_cookie_se_novo(resp, sid, novo)
+    return resp
+
+
+@app.delete("/api/evidencias/{ct_id}/{evid_id}")
+def remover_evidencia(ct_id: str, evid_id: str, request: Request, response: Response):
+    sessao, sid, novo = _sessao_de(request)
+    _aplicar_cookie_se_novo(response, sid, novo)
+    lista = sessao.evidencias.get(ct_id, [])
+    sessao.evidencias[ct_id] = [e for e in lista if e["id"] != evid_id]
+    return {"evidencias": _evidencias_publicas(sessao, ct_id)}
+
+
+@app.post("/api/exportar-execucao-pdf")
+def exportar_execucao_pdf(request: Request, payload: dict = Body(default={})):
+    sessao, sid, novo = _sessao_de(request)
+    if not sessao.resultado:
+        raise HTTPException(status_code=400, detail="Gere a modelagem antes de exportar a execução dos testes.")
+
+    avaliacoes = {}
+    for ct_id, a in ((payload or {}).get("avaliacoes") or {}).items():
+        if not isinstance(a, dict):
+            continue
+        status = a.get("status") if a.get("status") in STATUS_EXECUCAO else "pendente"
+        avaliacoes[str(ct_id)] = {"status": status, "comments": str(a.get("comments") or "")[:500]}
+
+    try:
+        pdf_bytes = pdf_execucao.gerar_pdf_execucao(sessao.resultado, sessao.evidencias, avaliacoes)
+    except Exception as e:
+        _log_erro("Erro em gerar_pdf_execucao", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao gerar o PDF: {type(e).__name__}: {e}. Detalhes em {_BACKEND_LOG}",
+        )
+
+    ivr = str(sessao.resultado.get("jira_ivr") or "").replace("/", "_").replace(" ", "")
+    resp = StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=Execucao_dos_Testes_{ivr or 'URA'}.pdf"},
+    )
+    _aplicar_cookie_se_novo(resp, sid, novo)
+    return resp
 
 
 @app.get("/api/status-servidor")

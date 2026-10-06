@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20261006" />
 </head>
 <body>
 
@@ -92,6 +92,7 @@
     <button class="tab-btn" onclick="switchExcelTab('tabMassa', this)">Massa de Testes</button>
     <button class="tab-btn" onclick="switchExcelTab('tabLegenda', this)">Legenda</button>
     <button class="tab-btn" onclick="switchExcelTab('tabCenarios', this)">Cenários (BDD)</button>
+    <button class="tab-btn" onclick="switchExcelTab('tabExecucao', this)">Execução dos Testes</button>
     <button class="tab-btn" onclick="switchExcelTab('tabRevisao', this)">Revisão Necessária</button>
   </div>
 
@@ -200,6 +201,25 @@
     <!-- CENÁRIOS (BDD) -->
     <div class="sheet-panel" id="tabCenarios">
       <div id="cenariosContainer"></div>
+    </div>
+
+    <!-- EXECUÇÃO DOS TESTES -->
+    <div class="sheet-panel" id="tabExecucao">
+      <div class="exec-toolbar">
+        <div>
+          <h3 class="section-title" style="margin:0 0 4px;">Execução dos Testes</h3>
+          <p class="exec-nota">
+            Classifique cada CT, informe o bug aberto e anexe as evidências (.txt, .log, imagens, PDF…; até 5&nbsp;MB cada,
+            30&nbsp;MB no total). As evidências ficam na sessão — exporte o PDF antes de fechar. Gerar uma nova modelagem
+            limpa as evidências.
+          </p>
+        </div>
+        <div class="exec-acoes">
+          <span id="execResumo" class="exec-resumo"></span>
+          <button class="btn-export-pdf" id="btnExportPdf" onclick="exportarExecucaoPDF()">📄 Exportar PDF</button>
+        </div>
+      </div>
+      <div id="execucaoContainer"></div>
     </div>
 
     <!-- REVISÃO NECESSÁRIA -->
@@ -439,8 +459,112 @@
     if (!avaliacoesQA[ctId]) avaliacoesQA[ctId] = { status: "pendente", comments: "" };
     avaliacoesQA[ctId][campo] = valor;
     if (campo === 'status') {
-      const sel = document.getElementById(`eval-${ctId}`);
-      if (sel) sel.className = 'eval-select ' + valor;
+      ['eval-', 'exec-eval-'].forEach(prefixo => {
+        const sel = document.getElementById(prefixo + ctId);
+        if (sel) { sel.value = valor; sel.className = 'eval-select ' + valor; }
+      });
+      atualizarResumoExecucao();
+    } else if (campo === 'comments') {
+      ['massa-com-', 'exec-com-'].forEach(prefixo => {
+        const inp = document.getElementById(prefixo + ctId);
+        if (inp && inp !== document.activeElement) inp.value = valor;
+      });
+    }
+  }
+
+  /* ─── Execução dos testes: resumo, evidências e exportação em PDF ─── */
+  let evidenciasPorCT = {};
+
+  function atualizarResumoExecucao() {
+    if (!cacheModelagem) return;
+    const cont = { pendente: 0, ok: 0, nok: 0, blocked: 0 };
+    cacheModelagem.casos_teste.forEach(c => { cont[(avaliacoesQA[c.ct_id] || {}).status || 'pendente']++; });
+    const totalEvid = Object.values(evidenciasPorCT).reduce((n, l) => n + l.length, 0);
+    document.getElementById('execResumo').textContent =
+      `🟡 ${cont.pendente} · 🟢 ${cont.ok} · 🔴 ${cont.nok} · ⚠️ ${cont.blocked}  |  📎 ${totalEvid} evidência(s)`;
+  }
+
+  function formatarTamanho(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  function renderEvidencias(ctId) {
+    const lista = document.getElementById('evidLista-' + ctId);
+    if (!lista) return;
+    const itens = evidenciasPorCT[ctId] || [];
+    lista.innerHTML = itens.length
+      ? itens.map(e => `
+          <div class="evid-item">
+            <a class="evid-link" href="${API}/api/evidencias/${encodeURIComponent(ctId)}/${encodeURIComponent(e.id)}" title="Clique para baixar">📎 ${escHtml(e.nome)}</a>
+            <span class="evid-tam">${formatarTamanho(e.tamanho)}</span>
+            <button class="evid-rem" title="Remover" onclick="removerEvidencia('${escHtml(ctId)}','${escHtml(e.id)}')">✕</button>
+          </div>`).join('')
+      : '<span class="evid-vazio">Nenhuma evidência anexada.</span>';
+    atualizarResumoExecucao();
+  }
+
+  async function anexarEvidencias(ctId, input) {
+    const arquivos = Array.from(input.files || []);
+    if (!arquivos.length) return;
+    const fd = new FormData();
+    arquivos.forEach(a => fd.append('files', a));
+    try {
+      const resp = await fetch(`${API}/api/evidencias/${encodeURIComponent(ctId)}`, { method: 'POST', body: fd, credentials: 'same-origin' });
+      const res = await resp.json().catch(() => null);
+      if (!resp.ok) throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
+      evidenciasPorCT[ctId] = res.evidencias;
+      renderEvidencias(ctId);
+    } catch (err) {
+      alert('Erro ao anexar evidência: ' + (err && err.message ? err.message : err));
+    } finally {
+      input.value = '';
+    }
+  }
+
+  async function removerEvidencia(ctId, evidId) {
+    try {
+      const resp = await fetch(`${API}/api/evidencias/${encodeURIComponent(ctId)}/${encodeURIComponent(evidId)}`, { method: 'DELETE', credentials: 'same-origin' });
+      const res = await resp.json().catch(() => null);
+      if (!resp.ok) throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
+      evidenciasPorCT[ctId] = res.evidencias;
+      renderEvidencias(ctId);
+    } catch (err) {
+      alert('Erro ao remover evidência: ' + (err && err.message ? err.message : err));
+    }
+  }
+
+  async function exportarExecucaoPDF() {
+    const btn = document.getElementById('btnExportPdf');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Gerando PDF…';
+    try {
+      const resp = await fetch(`${API}/api/exportar-execucao-pdf`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avaliacoes: avaliacoesQA }),
+      });
+      if (!resp.ok) {
+        const res = await resp.json().catch(() => null);
+        throw new Error((res && res.detail) || `Erro HTTP ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Execucao_dos_Testes_${(cacheModelagem && cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err) {
+      alert('Erro ao exportar o PDF: ' + (err && err.message ? err.message : err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
     }
   }
 
@@ -588,7 +712,7 @@
               <option value="blocked"  ${stateQA.status==='blocked'?'selected':''}>Bloqueado ⚠️</option>
             </select>
           </td>
-          <td><input type="text" class="massa-input" style="background:#fff; width:100%;"
+          <td><input type="text" class="massa-input" style="background:#fff; width:100%;" id="massa-com-${escHtml(caso.ct_id)}"
             value="${escHtml(stateQA.comments)}" placeholder="Descreva observações de evidência…"
             oninput="salvarDadosExecucao('${escHtml(caso.ct_id)}', 'comments', this.value)" /></td>
         </tr>`;
@@ -627,10 +751,17 @@
 
     // ── 4. CENÁRIOS BDD ──────────────────────────────────────
     const cenarios = document.getElementById('cenariosContainer');
-    cenarios.innerHTML = "";
+    cenarios.innerHTML = data.casos_teste.map(caso => htmlCartaoCT(caso, false)).join('');
+    document.getElementById('execucaoContainer').innerHTML = data.casos_teste.map(caso => htmlCartaoCT(caso, true)).join('');
+    evidenciasPorCT = {};
+    atualizarResumoExecucao();
+    return renderizarRevisao(data);
+  }
+
+  function htmlCartaoCT(caso, modoExecucao) {
     const CORES_BLOCO = ["#1F4E79","#006B6B","#1E6B32","#B7770D","#5D4E75","#4A5568","#3730A3","#9F1239","#5B6C44"];
     const CORES_REGRESSIVO = "#7B241C";
-    data.casos_teste.forEach((caso) => {
+    {
       const corHeader = caso.regressivo ? CORES_REGRESSIVO : CORES_BLOCO[(caso.bloco - 1) % CORES_BLOCO.length];
       const pendenteTag = caso.sp_pendente ? `<span class="badge-pendente" style="margin-left:8px;">SP PENDENTE</span>` : '';
       let stepsRowsHtml = "";
@@ -648,7 +779,39 @@
           </tr>`;
       });
 
-      cenarios.innerHTML += `
+      const stateQA = avaliacoesQA[caso.ct_id] || { status: "pendente", comments: "" };
+      const idCt = escHtml(caso.ct_id);
+      const acoesCt = modoExecucao
+        ? `<span class="eval-inline">
+             <select class="eval-select ${stateQA.status}" id="exec-eval-${idCt}"
+               onchange="salvarDadosExecucao('${idCt}', 'status', this.value)">
+               <option value="pendente" ${stateQA.status==='pendente'?'selected':''}>Pendente 🟡</option>
+               <option value="ok"       ${stateQA.status==='ok'?'selected':''}>OK 🟢</option>
+               <option value="nok"      ${stateQA.status==='nok'?'selected':''}>Não OK 🔴</option>
+               <option value="blocked"  ${stateQA.status==='blocked'?'selected':''}>Bloqueado ⚠️</option>
+             </select>
+           </span>`
+        : `<button class="btn-copy" id="copyBtn-${idCt}" onclick="copiarStepsCT('${idCt}')">📋 Copiar</button>`;
+      const rodapeExecucao = modoExecucao
+        ? `<div class="exec-controles">
+             <label class="exec-campo">
+               <span>Bug aberto / comentários</span>
+               <input type="text" class="massa-input" id="exec-com-${idCt}" value="${escHtml(stateQA.comments)}"
+                 placeholder="Nome do bug aberto (ex.: QANET-1234 — descrição)"
+                 oninput="salvarDadosExecucao('${idCt}', 'comments', this.value)" />
+             </label>
+             <div class="evidencias-box">
+               <div class="evidencias-titulo">📎 Evidências</div>
+               <div class="evidencias-lista" id="evidLista-${idCt}"><span class="evid-vazio">Nenhuma evidência anexada.</span></div>
+               <label class="btn-evid">＋ Anexar evidência
+                 <input type="file" multiple style="display:none;"
+                   accept=".txt,.log,.csv,.json,.xml,.png,.jpg,.jpeg,.pdf,.docx,.xlsx"
+                   onchange="anexarEvidencias('${idCt}', this)" />
+               </label>
+             </div>
+           </div>`
+        : '';
+      return `
         <div class="block-header" style="background:${corHeader};">
           ${escHtml(caso.bloco_nome)} — Estado Mapeado: ${escHtml(caso.estado)}
         </div>
@@ -659,7 +822,7 @@
           <div class="bdd-title">
             ${escHtml(caso.ct_id)}${pendenteTag} — ${escHtml(caso.gherkin)}
           </div>
-          <button class="btn-copy" id="copyBtn-${escHtml(caso.ct_id)}" onclick="copiarStepsCT('${caso.ct_id}')">📋 Copiar</button>
+          ${acoesCt}
         </div>
         <table class="data-table" style="margin-bottom:8px;">
           <thead>
@@ -671,9 +834,12 @@
             </tr>
           </thead>
           <tbody>${stepsRowsHtml}</tbody>
-        </table>`;
-    });
+        </table>
+        ${rodapeExecucao}`;
+    }
+  }
 
+  function renderizarRevisao(data) {
     // ── 5. REVISÃO NECESSÁRIA ─────────────────────────────────
     const revisao = document.getElementById('revisaoContent');
     if (!data.revisao_necessaria || data.revisao_necessaria.length === 0) {
