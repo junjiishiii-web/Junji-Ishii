@@ -476,6 +476,18 @@
       if (!ok) return;
     }
     await limparTrabalhoSalvo();
+    // Tela inicial totalmente em branco: sem arquivos carregados nem codigo IVR.
+    await Promise.all(['arq_spec', 'arq_spec_emp', 'arq_eep'].map(apagarEntrada));
+    specLoaded = false;
+    specEmpresasLoaded = false;
+    scopeLoaded = false;
+    servidorPrecisaReenvio = false;
+    ['specFile', 'scopeFile'].forEach(id => { document.getElementById(id).value = ''; });
+    ['specNameLabel', 'scopeNameLabel'].forEach(id => {
+      const el = document.getElementById(id);
+      el.textContent = '';
+      el.style.display = 'none';
+    });
     document.getElementById('ivrCodeInput').value = '';
     cacheModelagem = null;
     avaliacoesQA = {};
