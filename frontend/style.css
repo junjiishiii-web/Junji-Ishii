@@ -673,7 +673,12 @@ h3.section-title {
 /* ─── Manual do usuário ─── */
 .btn-manual { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.45); border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .btn-manual:hover { background: rgba(255,255,255,.26); }
-.btn-manual-landing { position: fixed; top: 16px; right: 20px; z-index: 5; }
+.landing-topo-dir { position: fixed; top: 16px; right: 20px; z-index: 5; display: flex; align-items: center; gap: 10px; }
+.versao-badge { font-size: 12px; font-weight: 700; color: #fff; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.4); border-radius: 12px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+.versao-badge:hover { background: rgba(255,255,255,.3); }
+.nav-actions { align-items: center; }
+.manual-versao { margin: 14px 0 4px; color: #1f4e79; font-size: 14px; }
+.manual-versao span { font-weight: 400; color: #777; font-size: 12px; }
 .btn-nav-manual { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.55); }
 .manual-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 20px; }
 .manual-overlay.visible { display: flex; }

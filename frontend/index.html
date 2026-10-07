@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261016" />
+  <link rel="stylesheet" href="style.css?v=20261017" />
+  <script src="versao.js?v=2.0"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -17,7 +18,10 @@
 <div id="landingPage">
   <div class="landing-bg"></div>
 
-  <button class="btn-manual btn-manual-landing" onclick="abrirManual()">📖 Manual do usuário</button>
+  <div class="landing-topo-dir">
+    <span class="versao-badge" title="Versão do Modeler Assistant — clique para ver o histórico" onclick="abrirManual('man-versoes')"></span>
+    <button class="btn-manual" onclick="abrirManual()">📖 Manual do usuário</button>
+  </div>
 
   <!-- Logo Centralizado no Bloco da Esquerda -->
   <div class="landing-logo">
@@ -80,6 +84,7 @@
       <span>Modeler Assistant</span>
     </div>
     <div class="nav-actions">
+      <span class="versao-badge" title="Versão do Modeler Assistant — clique para ver o histórico" onclick="abrirManual('man-versoes')"></span>
       <button class="btn-nav btn-nav-manual" onclick="abrirManual()">📖 Manual</button>
       <button class="btn-nav btn-nav-blue" id="btnGerarModelagem" onclick="voltarParaSplash()">
         Nova Modelagem
@@ -252,6 +257,7 @@
         <a href="#man-xlsx">Exportar xlsx</a>
         <a href="#man-nova">Nova Modelagem</a>
         <a href="#man-problemas">Problemas comuns</a>
+        <a href="#man-versoes">Histórico de versões</a>
       </nav>
       <div class="manual-conteudo" id="manualConteudo">
 
@@ -363,6 +369,11 @@
             <tr><td>Evidência recusada</td><td>Confira tipo de arquivo e limites (25 MB por arquivo, 20 por CT, 50 MB por CT).</td></tr>
           </table>
           <p class="manual-dica">Algo diferente do esperado na modelagem? Olhe a aba <em>Revisão Necessária</em> primeiro: ela explica o que a ferramenta ignorou ou não encontrou.</p>
+        </section>
+
+        <section id="man-versoes">
+          <h3>Histórico de versões</h3>
+          <div id="manualVersoes"></div>
         </section>
 
       </div>
@@ -580,6 +591,19 @@
       showLoading(false);
     }
   }
+
+  /* ─── versão da ferramenta (dados em versao.js) ─── */
+  (function mostrarVersao() {
+    const v = window.MODELER_VERSAO;
+    if (!v) return;
+    document.querySelectorAll('.versao-badge').forEach(el => { el.textContent = 'V ' + v.numero; });
+    const alvo = document.getElementById('manualVersoes');
+    if (alvo) {
+      alvo.innerHTML = (window.MODELER_VERSOES || []).map((ver, i) =>
+        `<h4 class="manual-versao">V ${escHtml(ver.numero)} <span>— ${escHtml(ver.data)}${i === 0 ? ' · versão atual' : ''}</span></h4>` +
+        `<ul>${ver.itens.map(t => `<li>${escHtml(t)}</li>`).join('')}</ul>`).join('');
+    }
+  })();
 
   /* ─── manual do usuário ────────────────────────────────── */
   function abrirManual(secao) {
