@@ -48,6 +48,11 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
 
     avisar(12, "Detectando a(s) cor(es) da versão vigente...")
     cores_detectadas = color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
+    # Cores que marcam as linhas dos estados no versionamento (ex.: amarelo) tambem identificam as
+    # celulas alteradas nas abas de estado, mesmo quando o cabecalho do bloco usa outra cor.
+    for cor_estado in spec_model["versionamento"].get("cores_estados", []):
+        if cor_estado not in cores_detectadas:
+            cores_detectadas = list(cores_detectadas) + [cor_estado]
     cor_detectada = cores_detectadas[0] if cores_detectadas else None
     itens_cor = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw), cores_detectadas) if cores_detectadas else {}
 
@@ -67,6 +72,9 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
             eep_nome=eep_model.get("nome"), eep_filename=eep_filename, eep_jira=eep_model.get("jira"),
         )
         cores_2 = color_utils.detectar_cores_projeto(io.BytesIO(spec_raw_2), ivr_efetivo)
+        for cor_estado in spec_model_empresas["versionamento"].get("cores_estados", []):
+            if cor_estado not in cores_2:
+                cores_2 = list(cores_2) + [cor_estado]
         itens_cor_2 = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw_2), cores_2) if cores_2 else {}
         plano_empresas = gerar_plano_ct(spec_model_empresas, eep_model, tipo_a=tipo_a, itens_cor=itens_cor_2)
 

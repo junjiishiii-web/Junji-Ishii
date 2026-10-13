@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.5',
+    data: '13/10/2026',
+    itens: [
+      'Prompts em amarelo nas abas de estado voltam a ser mapeados quando a cor das linhas do versionamento (ex.: amarelo) é diferente da cor do cabeçalho do bloco: a cor das linhas passa a contar como cor do projeto.',
+    ],
+  },
+  {
     numero: '2.4',
     data: '13/10/2026',
     itens: [

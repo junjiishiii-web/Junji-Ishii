@@ -722,7 +722,7 @@ def _filtrar_estados_por_cor(spec_path_or_bytes, wb, versionamento):
     demais ficam em branco, o escopo do projeto sao as pintadas — as brancas costumam ser
     de outras entregas mescladas no mesmo bloco. Se todas ou nenhuma estiverem pintadas, mantem todas."""
     estados = versionamento.get("estados_alterados") or []
-    if len(estados) < 2 or not hasattr(spec_path_or_bytes, "seek"):
+    if not estados or not hasattr(spec_path_or_bytes, "seek"):
         return
     try:
         from color_utils import cor_por_linha
@@ -734,6 +734,9 @@ def _filtrar_estados_por_cor(spec_path_or_bytes, wb, versionamento):
     except Exception:
         return
     marcados = [e for e in estados if e.get("linha") in cores]
+    # A cor que marca as linhas dos estados (ex.: amarelo) costuma ser a MESMA usada nas celulas
+    # alteradas das abas de estado, e pode ser diferente da cor do cabecalho do bloco.
+    versionamento["cores_estados"] = sorted({cores[e["linha"]] for e in marcados})
     if marcados and len(marcados) < len(estados):
         versionamento["ignorados_sem_cor"] = [e["nome"] for e in estados if e.get("linha") not in cores]
         versionamento["estados_alterados"] = marcados
