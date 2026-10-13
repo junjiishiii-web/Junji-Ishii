@@ -1697,8 +1697,22 @@ class GeradorCT:
 
     def sps_regressao(self):
         """ScriptPoints JA EXISTENTES (producao) que os CTs regressivos conferem."""
+        descricoes = {}
+        for dados_estado in self.spec_model["estados"].values():
+            for item in list(dados_estado.get("transicoes", [])) + list(dados_estado.get("prompts", [])):
+                bruto = item.get("sp_raw") or ""
+                sp = item.get("sp")
+                m = re.match(r"^\s*(\d{3,8})\s*[-–]\s*(.+)$", bruto)
+                if sp and m and m.group(1) == sp[1]:
+                    descricoes.setdefault(sp[1], m.group(2).strip())
         return [
-            {"codigo": r["codigo"], "tipo": r["tipo"], "estado": ", ".join(r["estados"]), "ct": ", ".join(r["cts"])}
+            {
+                "codigo": r["codigo"],
+                "tipo": r["tipo"],
+                "descricao": descricoes.get(r["codigo"], "—"),
+                "estado": ", ".join(r["estados"]),
+                "ct": ", ".join(r["cts"]),
+            }
             for r in sorted(self._sp_regressao.values(), key=lambda r: (r["tipo"], r["codigo"]))
         ]
 

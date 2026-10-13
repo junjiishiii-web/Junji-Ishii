@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261019" />
-  <script src="versao.js?v=2.9"></script>
+  <link rel="stylesheet" href="style.css?v=20261020" />
+  <script src="versao.js?v=2.10"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -153,40 +153,43 @@
 
     <!-- MARCAÇÕES DE BI -->
     <div class="sheet-panel" id="tabBI">
-      <h3 class="section-title">ScriptPoints Marcados (Versionamento BI)</h3>
-      <p id="biResumo" style="font-size:12px; color:#666; margin-bottom:12px;"></p>
-      <div class="history-table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="width:120px;">ScriptPoint</th>
-              <th>Descrição da Marcação</th>
-              <th style="width:200px;">Estado da marcação</th>
-              <th style="width:160px;">CT Cobertura</th>
-            </tr>
-          </thead>
-          <tbody id="biMarcacoesBody"></tbody>
-        </table>
-      </div>
-      <div id="biRegressaoBox" style="display:none; margin-top:26px;">
-        <h3 class="section-title">ScriptPoints já existentes (produção) conferidos na regressão</h3>
-        <p style="font-size:12px; color:#666; margin-bottom:12px;">
-          Não são marcações novas deste projeto: são SPs legados que os CTs regressivos validam para provar que continuam sendo registrados.
-        </p>
+      <div id="biResumo" class="bi-resumo"></div>
+
+      <section class="bi-secao bi-nova">
+        <h3 class="section-title">① Marcações NOVAS do projeto <span class="bi-contador" id="biContNovas"></span></h3>
+        <p class="bi-nota">ScriptPoints marcados na aba Versionamento BI para este projeto — são o que a versão entrega de novo.</p>
         <div class="history-table-wrap">
           <table class="data-table">
             <thead>
               <tr>
                 <th style="width:120px;">ScriptPoint</th>
-                <th style="width:90px;">Tipo</th>
-                <th>Estado</th>
+                <th>Descrição da Marcação</th>
+                <th style="width:200px;">Estado da marcação</th>
+                <th style="width:160px;">CT Cobertura</th>
+              </tr>
+            </thead>
+            <tbody id="biMarcacoesBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="bi-secao bi-existente" id="biRegressaoBox" style="display:none;">
+        <h3 class="section-title">② Marcações EXISTENTES (produção) — conferidas na regressão <span class="bi-contador" id="biContLegados"></span></h3>
+        <p class="bi-nota">Não são novidade deste projeto: são SPs que já estão em produção e que os CTs regressivos validam para provar que continuam sendo registrados.</p>
+        <div class="history-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:120px;">ScriptPoint</th>
+                <th>Descrição (SPEC)</th>
+                <th style="width:200px;">Estado</th>
                 <th style="width:200px;">CT Regressivo</th>
               </tr>
             </thead>
             <tbody id="biRegressaoBody"></tbody>
           </table>
         </div>
-      </div>
+      </section>
     </div>
 
     <!-- MASSA DE TESTES -->
@@ -1599,10 +1602,14 @@
     const biBody = document.getElementById('biMarcacoesBody');
     biBody.innerHTML = "";
     const biLista = data.bi_marcacoes || [];
+    const legados = data.sps_regressao || [];
     const biSemCt = biLista.filter(sp => sp.ct === '—').length;
-    document.getElementById('biResumo').textContent = biLista.length
-      ? `${biLista.length} ScriptPoint(s) marcados · ${biLista.length - biSemCt} coberto(s) por CT · ${biSemCt} sem CT`
-      : '';
+    document.getElementById('biContNovas').textContent = `(${biLista.length})`;
+    document.getElementById('biContLegados').textContent = `(${legados.length})`;
+    document.getElementById('biResumo').innerHTML =
+      `<strong>${biLista.length}</strong> marcação(ões) <strong>nova(s)</strong> do projeto` +
+      (biLista.length ? ` — ${biLista.length - biSemCt} coberta(s) por CT, ${biSemCt} sem CT` : '') +
+      ` &nbsp;·&nbsp; <strong>${legados.length}</strong> marcação(ões) <strong>existente(s)</strong> em produção conferida(s) na regressão`;
     biLista.forEach(sp => {
       const semCt = sp.ct === '—';
       biBody.innerHTML += `
@@ -1613,18 +1620,17 @@
           <td>${escHtml(sp.ct)}</td>
         </tr>`;
     });
-    const legados = data.sps_regressao || [];
     document.getElementById('biRegressaoBox').style.display = legados.length ? 'block' : 'none';
     document.getElementById('biRegressaoBody').innerHTML = legados.map(sp => `
       <tr>
-        <td><strong>${escHtml(sp.codigo)}</strong></td>
-        <td>${escHtml(sp.tipo)}</td>
+        <td><strong>${escHtml(sp.tipo)}=${escHtml(sp.codigo)}</strong></td>
+        <td>${escHtml(sp.descricao || '—')}</td>
         <td>${escHtml(sp.estado)}</td>
         <td>${escHtml(sp.ct)}</td>
       </tr>`).join('');
-    if (!data.bi_marcacoes || data.bi_marcacoes.length === 0) {
+    if (!biLista.length) {
       biBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:20px;">
-        Nenhum ScriptPoint novo encontrado na aba Versionamento BI.</td></tr>`;
+        Nenhuma marcação de BI nova neste projeto (a aba Versionamento BI não traz ScriptPoints do projeto).</td></tr>`;
     }
   }
 

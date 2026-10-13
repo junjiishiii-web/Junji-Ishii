@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.10',
+    data: '13/10/2026',
+    itens: [
+      'Marcações de BI: duas seções claramente separadas — ① marcações NOVAS do projeto e ② marcações EXISTENTES (produção) conferidas na regressão, com contadores, descrição do SP e títulos próprios no xlsx.',
+    ],
+  },
+  {
     numero: '2.9',
     data: '13/10/2026',
     itens: [

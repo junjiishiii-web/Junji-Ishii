@@ -138,12 +138,16 @@ def _escrever_bi_marcacoes(wb, plano):
     ws = wb.create_sheet("BI_Marcacoes")
     headers = ["ScriptPoint", "Descrição da Marcação (Versionamento BI)", "Estado da marcação", "CT Cobertura"]
     larguras = [14, 60, 28, 20]
-    for i, (h, w) in enumerate(zip(headers, larguras), start=1):
+    for i, w in enumerate(larguras, start=1):
         ws.column_dimensions[chr(64 + i)].width = w
-        cell = ws.cell(row=1, column=i, value=h)
+    ws.cell(row=1, column=1, value=f"MARCAÇÕES NOVAS DO PROJETO (Versionamento BI) — {len(plano['bi_marcacoes'])}").font = Font(name=FONT_NAME, bold=True)
+    for i, h in enumerate(headers, start=1):
+        cell = ws.cell(row=2, column=i, value=h)
         cell.font = Font(name=FONT_NAME, bold=True, color="FFFFFF")
         cell.fill = HEADER_FILL
-    for i, linha in enumerate(plano["bi_marcacoes"], start=2):
+    if not plano["bi_marcacoes"]:
+        ws.cell(row=3, column=1, value="Nenhuma marcação de BI nova neste projeto.").font = Font(name=FONT_NAME, italic=True)
+    for i, linha in enumerate(plano["bi_marcacoes"], start=3):
         ws.cell(row=i, column=1, value=linha["codigo"])
         ws.cell(row=i, column=2, value=linha["descricao"])
         ws.cell(row=i, column=3, value=linha.get("estado") or "—")
@@ -152,16 +156,19 @@ def _escrever_bi_marcacoes(wb, plano):
     # Secao propria: SPs ja existentes em producao, conferidos nos CTs regressivos.
     legados = plano.get("sps_regressao") or []
     if legados:
-        inicio = len(plano["bi_marcacoes"]) + 4
-        titulo = ws.cell(row=inicio - 1, column=1, value="ScriptPoints JÁ EXISTENTES (produção) conferidos na regressão")
+        inicio = max(len(plano["bi_marcacoes"]), 1) + 6
+        titulo = ws.cell(
+            row=inicio - 1, column=1,
+            value=f"MARCAÇÕES EXISTENTES (PRODUÇÃO) — conferidas na regressão — {len(legados)}",
+        )
         titulo.font = Font(name=FONT_NAME, bold=True)
-        for j, h in enumerate(["ScriptPoint", "Tipo", "Estado", "CT Regressivo"], start=1):
+        for j, h in enumerate(["ScriptPoint", "Descrição (SPEC)", "Estado", "CT Regressivo"], start=1):
             cell = ws.cell(row=inicio, column=j, value=h)
             cell.font = Font(name=FONT_NAME, bold=True, color="FFFFFF")
             cell.fill = HEADER_FILL
         for k, linha in enumerate(legados, start=inicio + 1):
             ws.cell(row=k, column=1, value=linha["codigo"])
-            ws.cell(row=k, column=2, value=linha["tipo"])
+            ws.cell(row=k, column=2, value=linha.get("descricao") or "—")
             ws.cell(row=k, column=3, value=linha["estado"])
             ws.cell(row=k, column=4, value=linha["ct"])
 
