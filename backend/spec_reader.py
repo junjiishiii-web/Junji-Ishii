@@ -35,15 +35,15 @@ import openpyxl
 # campo pelo TEXTO do cabecalho (onde quer que ele esteja na linha) — isso
 # funciona pros dois formatos, e pra variantes futuras, sem precisar saber a
 # ferramenta de origem de antemao.
-PROMPT_ID_ALIASES = ("nome do prompt", "prompt", "prompts", "id prompt", "id da fala")
-PROMPT_TEXTO_ALIASES = ("conteúdo do prompt", "conteudo do prompt", "fala", "texto")
-PROMPT_SP_ALIASES = ("marcações de b.i.", "marcacoes de b.i.", "anotação", "anotacao")
+PROMPT_ID_ALIASES = ("nome do prompt", "prompt", "prompts", "id prompt", "id da fala", "nome da gravação", "nome da gravacao", "nome da gravaçao")
+PROMPT_TEXTO_ALIASES = ("conteúdo do prompt", "conteudo do prompt", "fala", "texto", "conteúdo", "conteudo", "texto a gravar")
+PROMPT_SP_ALIASES = ("marcações de b.i.", "marcacoes de b.i.", "anotação", "anotacao", "marcação de bi", "marcacao de bi", "marcações de bi", "marcacoes de bi", "marcação de b.i.", "marcacao de b.i.")
 
-TRANSICAO_CONDICAO_ALIASES = ("resultado", "transição", "transicao", "condição", "condicao")
+TRANSICAO_CONDICAO_ALIASES = ("resultado", "resultados", "transição", "transicao", "condição", "condicao")
 TRANSICAO_DESTINO_ALIASES = ("vai para o estado", "próximo estado", "proximo estado")
 TRANSICAO_PROMPT_ALIASES = ("prompt que vai ouvir", "próximo prompt", "proximo prompt", "prompt")
-TRANSICAO_OBS_ALIASES = ("observações", "observacoes")
-TRANSICAO_SP_ALIASES = ("marcações de b.i.", "marcacoes de b.i.", "anotação", "anotacao")
+TRANSICAO_OBS_ALIASES = ("observações", "observacoes", "obs.", "obs")
+TRANSICAO_SP_ALIASES = ("marcações de b.i.", "marcacoes de b.i.", "anotação", "anotacao", "marcação de bi", "marcacao de bi", "marcações de bi", "marcacoes de bi", "marcação de b.i.", "marcacao de b.i.")
 
 ESTADO_LABELS = ("nome do estado", "estado:")
 ANTERIORES_LABELS = ("estados anteriores", "estado anterior")
@@ -212,6 +212,14 @@ def parse_state_sheet(sheet):
             i += 1
             continue
 
+        candidato_transicao = _mapear_cabecalho_transicao(normalizados)
+        if candidato_transicao["condicao"] is not None and (candidato_transicao["destino"] is not None or candidato_transicao["sp"] is not None):
+            section = "transicoes"
+            mapa_transicao = candidato_transicao
+            stack = {}
+            i += 1
+            continue
+
         # Deteccao de cabecalho de PROMPTS: exige achar a coluna de id +
         # pelo menos mais um campo (texto ou sp) na mesma linha, pra evitar
         # falso positivo de uma celula solta contendo "prompt".
@@ -223,13 +231,6 @@ def parse_state_sheet(sheet):
             i += 1
             continue
 
-        candidato_transicao = _mapear_cabecalho_transicao(normalizados)
-        if candidato_transicao["condicao"] is not None and (candidato_transicao["destino"] is not None or candidato_transicao["sp"] is not None):
-            section = "transicoes"
-            mapa_transicao = candidato_transicao
-            stack = {}
-            i += 1
-            continue
 
         if section == "prompts" and mapa_prompt:
             prompt_id = _valor(row, mapa_prompt["id"])

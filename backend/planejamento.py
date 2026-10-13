@@ -155,6 +155,12 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
         "Tentativas de erro (REJ/SIL/INV/INC) são agrupadas em um único CT por escada, com o prompt de cada tentativa.",
         "Evidência por CT: LOG da URA, CDR e ScriptPoint registrado; anexadas na aba Execução dos Testes e exportadas em PDF.",
     ]
+    prompts_novos = [c for c in casos if "Fraseologia nova" in (c.get("alteracao_relatada") or "")]
+    if prompts_novos:
+        estrategia.append(
+            f"Fraseologia: {len(prompts_novos)} CT(s) validam os prompts novos marcados na SPEC — texto da locução e, nas "
+            "tentativas de erro/silêncio, a escada completa (REJ1+REJ2, SIL1+SIL2) por variante."
+        )
     if perfis:
         estrategia.append(
             "Perfis de entrada exercitados: "

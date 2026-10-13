@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.2',
+    data: '13/10/2026',
+    itens: [
+      'Prompts novos (células na cor da versão) passam a ser validados: 1 CT por INI, por escada REJ e por escada SIL de cada variante (ex.: Casa/Empresa), com o texto de cada tentativa.',
+      'Reconhece cabeçalhos de prompts e transições de outras SPECs ("Nome da gravação", "Texto a gravar", "Resultados", "Marcação de BI").',
+    ],
+  },
+  {
     numero: '2.1',
     data: '13/10/2026',
     itens: [

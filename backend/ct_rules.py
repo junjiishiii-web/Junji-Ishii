@@ -1052,44 +1052,168 @@ class GeradorCT:
 
     # ---------- L9: fraseologia obrigatoria p/ prompts na cor do projeto ----------
 
+    def _transicao_que_toca_prompt(self, estado, prompt):
+        """(origem, transicao) de uma transicao que leva a `estado` tocando `prompt` como
+        proximo prompt — da o caminho exato (e a variante, ex.: Casa/Empresa) ate ele."""
+        mapa = self.spec_model["mapa_rotas"]
+        state_data = self.spec_model["estados"].get(estado, {})
+        for origem, dados_origem in self.spec_model["estados"].items():
+            for t in dados_origem.get("transicoes", []):
+                alvo = (t.get("prox_prompt") or "").strip()
+                if not alvo or resolver_destino(mapa, t.get("destino")) != estado:
+                    continue
+                casado = _achar_prompt_por_id(state_data.get("prompts", []), normalizar_chave(alvo))
+                if casado and casado["id"] == prompt["id"]:
+                    return origem, t
+        return None, None
+
     def gerar_cts_fraseologia(self, itens_cor):
+        """
+        L9: prompts NOVOS (celulas na cor da versao, na tabela de prompts do estado) precisam
+        ser validados — texto da locucao e, nas tentativas de erro/silencio, a escada completa.
+        Agrupa por variante (ex.: Casa/Empresa) e tipo: 1 CT por INI, 1 CT por escada REJ,
+        1 CT por escada SIL (REJ1+REJ2 juntos, SIL1+SIL2 juntos), e 1 CT por prompt avulso.
+        Prompts que ja aparecem em algum step de outro CT nao geram CT duplicado.
+        """
         if not itens_cor:
             return
         cobertos = {p["prompt_id"] for c in self.casos_teste for p in c["steps"] if p.get("prompt_id") not in (None, "—")}
         bloco_idx = len(self._blocos) + 1
         criado_bloco = False
+        familia_re = re.compile(r"(?<![a-z])(INI|Ini|REJ|Rej|SIL|Sil)(\d?)(?=_|$)")
+        ordem_familia = {"ini": 0, "rej": 1, "sil": 2}
+
+        def _classificar(pid):
+            m = familia_re.search(pid)
+            if not m:
+                return ("outro", normalizar_chave(pid), 0)
+            return (m.group(1).lower(), normalizar_chave(pid[: m.start()] + pid[m.end():]), int(m.group(2) or 1))
 
         for aba, itens in itens_cor.items():
             estado = resolver_destino(self.spec_model["mapa_rotas"], aba) or aba
             state_data = self.spec_model["estados"].get(estado)
-            if not state_data:
+            if not state_data or not state_data.get("prompts"):
                 continue
+
+            novos, vistos = [], set()
             for _row, _col, valor, _cont in itens:
                 prompt = next((p for p in state_data["prompts"] if normalizar_chave(valor) == normalizar_chave(p["id"])), None)
-                if not prompt or prompt["id"] in cobertos:
+                if prompt and prompt["id"] not in vistos and prompt["id"] not in cobertos:
+                    vistos.add(prompt["id"])
+                    novos.append(prompt)
+            if not novos:
+                continue
+
+            grupos = {}
+            for prompt in novos:
+                familia, variante, n = _classificar(prompt["id"])
+                chave = (variante, familia) if familia != "outro" else (prompt["id"], "outro")
+                grupos.setdefault(chave, []).append((n, prompt))
+
+            def _ordem(item):
+                (variante, familia), _ps = item
+                return (variante, ordem_familia.get(familia, 3))
+
+            for (variante, familia), lista in sorted(grupos.items(), key=_ordem):
+                lista.sort(key=lambda x: x[0])
+                prompts = [p for _n, p in lista]
+                ids = ", ".join(p["id"] for p in prompts)
+
+                # Caminho: o da transicao que toca o INI/prompt dessa variante (traz Casa/Empresa etc.).
+                referencia = prompts[0]
+                if familia in ("rej", "sil"):
+                    ini = next(
+                        (p for p in state_data["prompts"]
+                         if _classificar(p["id"])[:2] == ("ini", variante)),
+                        None,
+                    )
+                    referencia = ini or prompts[0]
+                origem, t_ref = self._transicao_que_toca_prompt(estado, referencia)
+                if origem:
+                    caminho_origem, perfil_efetivo = bfs_caminho_entrada(self.spec_model, origem, perfil_entrada="aninao")
+                    caminho = (caminho_origem + [estado]) if caminho_origem else []
+                else:
+                    t_ref = None
+                    caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado, perfil_entrada="aninao")
+                if not caminho:
+                    caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado, perfil_entrada="aninao")
+                if not caminho:
                     continue
+                perfil_txt = "ANINÃO" if perfil_efetivo == "aninao" else "ANISIM"
+
+                steps_extra = []
+                if familia in ("rej", "sil"):
+                    for n, p in lista:
+                        rotulo = (
+                            f"Digitar entrada inválida ({n}ª tentativa — REJ{n})"
+                            if familia == "rej"
+                            else f"Permanecer em silêncio ({n}ª tentativa — SIL{n})"
+                        )
+                        sp_p = p.get("sp")
+                        texto = p["texto"] or "—"
+                        steps_extra.append(
+                            {
+                                "step_num": 0,
+                                "acao": rotulo,
+                                "estado": estado,
+                                "prompt_id": p["id"],
+                                "prompt_texto": texto,
+                                "sp": sp_p,
+                                "resultado": (f"{sp_p[0]}={sp_p[1]} — {texto}" if sp_p else texto),
+                            }
+                        )
+                    quando = (
+                        f"o cliente errar a entrada {len(lista)} vez(es)"
+                        if familia == "rej"
+                        else f"o cliente ficar em silêncio {len(lista)} vez(es)"
+                    )
+                    gherkin = f"Dado cliente {perfil_txt} no estado {estado}, Quando {quando}, Então devem tocar {ids}, na ordem, conforme a SPEC."
+                    tipo_txt = "escada REJ" if familia == "rej" else "escada SIL"
+                else:
+                    if not origem:  # sem transicao dedicada: valida o prompt explicitamente
+                        p = prompts[0]
+                        steps_extra.append(
+                            {
+                                "step_num": 0,
+                                "acao": "Aguardar a reprodução do prompt",
+                                "estado": estado,
+                                "prompt_id": p["id"],
+                                "prompt_texto": p["texto"] or "—",
+                                "sp": p.get("sp"),
+                                "resultado": p["texto"] or "—",
+                            }
+                        )
+                    gherkin = (
+                        f"Dado cliente {perfil_txt} chega ao estado {estado}, Quando o prompt {ids} for reproduzido, "
+                        f"Então a locução deve corresponder fielmente ao texto da SPEC."
+                    )
+                    tipo_txt = "prompt"
+
                 if not criado_bloco:
                     bloco_nome = f"Bloco {bloco_idx}"
                     self._blocos.append(
                         {"numero": bloco_idx, "nome": bloco_nome, "cor": self._cor_bloco(bloco_idx), "titulo": f"{bloco_nome} — Fraseologia"}
                     )
                     criado_bloco = True
-                caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado, perfil_entrada="aninao")
-                perfil_txt = "ANINÃO" if perfil_efetivo == "aninao" else "ANISIM"
-                gherkin = abreviar_gherkin(
-                    f"Dado cliente {perfil_txt} chega ao estado {estado}, Quando o prompt {prompt['id']} for reproduzido, "
-                    f"Então a locução deve corresponder fielmente ao texto marcado na SPEC."
-                )
+
+                sps_prompts = []
+                for p in prompts:
+                    if p.get("sp") and p["sp"] not in sps_prompts:
+                        sps_prompts.append(p["sp"])
                 self._add_ct(
                     bloco_idx,
                     f"Bloco {bloco_idx}",
                     estado,
-                    f"Fraseologia obrigatória (L9) — prompt {prompt['id']} marcado na versão vigente",
+                    f"Fraseologia nova (L9) — {tipo_txt}: {ids}",
                     perfil_efetivo,
                     caminho,
+                    sp_final=sps_prompts[0] if sps_prompts else None,
+                    sps_todos=sps_prompts,
                     gherkin_override=gherkin,
+                    steps_extra=steps_extra,
+                    transicao_final=t_ref,
                 )
-                cobertos.add(prompt["id"])
+                cobertos.update(p["id"] for p in prompts)
 
     # ---------- L3/L5/L11: bloco REGRESSIVO ----------
 
