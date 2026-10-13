@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.1',
+    data: '13/10/2026',
+    itens: [
+      'SPEC ClaroEmpresas: reconhece as abas VersionControl/VersionControlBI (antes o projeto saía com 0 CTs).',
+      'Blocos de versionamento colados (sem linha em branco) deixam de misturar o título do bloco com os estados.',
+      'Coluna de ScriptPoint sem cabeçalho nas transições passa a ser lida (SPs que antes ficavam sem CT).',
+    ],
+  },
+  {
     numero: '2.0',
     data: '06/10/2026',
     itens: [

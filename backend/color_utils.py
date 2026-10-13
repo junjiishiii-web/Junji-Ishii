@@ -95,9 +95,18 @@ def detectar_cores_projeto(spec_bytes, ivr_code, aba_versionamento="_Versionamen
     outro projeto)."""
     part = _sheet_name_to_part(spec_bytes, aba_versionamento)
     if not part:
-        for alt in ("Versionamento", "VersionamentoBI", "_VersionamentoBI_"):
+        for alt in ("Versionamento", "VersionControl", "VersionamentoBI", "_VersionamentoBI_", "VersionControlBI"):
             part = _sheet_name_to_part(spec_bytes, alt)
             if part:
+                break
+    if not part:
+        # Qualquer outra grafia do nome da aba de versionamento (so a de estados)
+        from spec_reader import eh_aba_versionamento
+        with zipfile.ZipFile(spec_bytes, "r") as z:
+            nomes = [sh.get("name") for sh in etree.fromstring(z.read("xl/workbook.xml")).findall(f".//{{{NS}}}sheets/{{{NS}}}sheet")]
+        for nome in nomes:
+            if eh_aba_versionamento(nome, bi=False):
+                part = _sheet_name_to_part(spec_bytes, nome)
                 break
     if not part:
         return []

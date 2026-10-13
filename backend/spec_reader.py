@@ -41,7 +41,7 @@ PROMPT_SP_ALIASES = ("marcações de b.i.", "marcacoes de b.i.", "anotação", "
 
 TRANSICAO_CONDICAO_ALIASES = ("resultado", "transição", "transicao", "condição", "condicao")
 TRANSICAO_DESTINO_ALIASES = ("vai para o estado", "próximo estado", "proximo estado")
-TRANSICAO_PROMPT_ALIASES = ("prompt que vai ouvir", "próximo prompt", "proximo prompt")
+TRANSICAO_PROMPT_ALIASES = ("prompt que vai ouvir", "próximo prompt", "proximo prompt", "prompt")
 TRANSICAO_OBS_ALIASES = ("observações", "observacoes")
 TRANSICAO_SP_ALIASES = ("marcações de b.i.", "marcacoes de b.i.", "anotação", "anotacao")
 
@@ -288,6 +288,14 @@ def parse_state_sheet(sheet):
                 prox_prompt = _valor(row, mapa_transicao["prox_prompt"])
                 obs_transicao = _valor(row, mapa_transicao["obs"])
                 marcacao = _valor(row, mapa_transicao["sp"])
+                if not marcacao and mapa_transicao["sp"] is None and mapa_transicao["destino"] is not None:
+                    # Algumas SPECs (ex.: ClaroEmpresas) deixam a coluna do SP SEM cabecalho,
+                    # depois das colunas nomeadas: procura ali uma marcacao "NNNN - nome" / "spt=NNNN".
+                    for idx_extra in range(mapa_transicao["destino"] + 1, len(row)):
+                        candidato_sp = _valor(row, idx_extra)
+                        if candidato_sp and (CODE_WITH_DESC_RE.match(candidato_sp) or SP_INLINE_RE.search(candidato_sp)):
+                            marcacao = candidato_sp
+                            break
 
                 stack[depth] = label
                 for d in [d for d in stack if d > depth]:
@@ -387,15 +395,23 @@ def _find_ivr_block_rows(linhas, ivr_code):
     return achadas
 
 
+def eh_aba_versionamento(nome, bi=None):
+    """True se o nome da aba e de versionamento. A SPEC ClaroEmpresas usa
+    "VersionControl"/"VersionControlBI" em vez de "_Versionamento_"/"_VersionamentoBI_".
+    `bi`: None = qualquer uma; True = so a de BI; False = so a de estados."""
+    limpo = re.sub(r"[^a-z]", "", str(nome).lower())
+    if "versionamento" not in limpo and "versioncontrol" not in limpo:
+        return False
+    return True if bi is None else limpo.endswith("bi") == bi
+
+
 def _achar_aba_versionamento(wb, aba_candidatas, bi):
-    """Nome exato primeiro; depois qualquer aba cujo nome (sem espacos/_/-)
-    contenha "versionamento" — com "bi" so para a aba de BI."""
+    """Nome exato primeiro; depois qualquer aba de versionamento (ver eh_aba_versionamento)."""
     for nome in aba_candidatas:
         if nome in wb.sheetnames:
             return wb[nome]
     for nome in wb.sheetnames:
-        limpo = re.sub(r"[\s_\-]+", "", nome).lower()
-        if "versionamento" in limpo and limpo.endswith("bi") == bi:
+        if eh_aba_versionamento(nome, bi):
             return wb[nome]
     return None
 
@@ -434,7 +450,14 @@ def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "V
                 if not alteracao_desc:
                     break
                 continue
-            if "ivr" in estado_nome.upper() or re.match(r"^v\.\d+$", estado_nome.lower()):
+            # Fim do bloco: o proximo cabecalho de versao (codigo na col. A, data na col. B ou
+            # titulo "IVR-N - ..." na col. C) — em algumas SPECs os blocos vem colados, sem linha em branco.
+            if (
+                "ivr" in estado_nome.lower()
+                or re.match(r"^v\.\d+", estado_nome.lower())
+                or str(linha[0] or "").strip()
+                or isinstance(linha[1], (datetime.date, datetime.datetime))
+            ):
                 break
             estados_alterados.append({"nome": estado_nome, "alteracao": alteracao_desc})
 
@@ -649,7 +672,7 @@ def descobrir_ivr(wb, nome_projeto=None, eep_filename="", eep_jira=""):
     outro projeto. Devolve (codigo "IVR-NNNNNN" ou None, origem)."""
     titulos = {}
     for nome in wb.sheetnames:
-        if "versionamento" not in nome.lower():
+        if not eh_aba_versionamento(nome):
             continue
         for linha in _materializar_linhas(wb[nome], 10):
             for val in linha:
@@ -683,7 +706,7 @@ def descobrir_ivr(wb, nome_projeto=None, eep_filename="", eep_jira=""):
 def _diagnostico_versionamento(wb):
     """Resumo do que existe nas abas de versionamento, para explicar um
     resultado vazio (abas encontradas e os ultimos codigos IVR citados)."""
-    abas = [n for n in wb.sheetnames if "versionamento" in n.lower()]
+    abas = [n for n in wb.sheetnames if eh_aba_versionamento(n)]
     codigos = []
     for nome in abas:
         for linha in _materializar_linhas(wb[nome], 10):
@@ -700,7 +723,7 @@ def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="",
     lista_abas = [
         n
         for n in wb.sheetnames
-        if (not n.startswith("_") or n.lower() in RESERVED_FLOW_STATES) and "versionamento" not in n.lower()
+        if (not n.startswith("_") or n.lower() in RESERVED_FLOW_STATES) and not eh_aba_versionamento(n)
     ]
     mapa_rotas = {normalizar_chave(n): n for n in lista_abas}
 
