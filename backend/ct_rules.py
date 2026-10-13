@@ -720,10 +720,13 @@ class GeradorCT:
 
         sufixo = "b" if sp_pendente and self.tipo_a else ""
         ct_id = self._novo_id(sufixo)
-        self._registrar_sp(sp_final, ct_id)
-        for sp_extra in sps_todos:
-            if sp_extra != sp_final:
-                self._registrar_sp(sp_extra, ct_id)
+        # CT regressivo confere SP LEGADO: nao conta como cobertura de marcacao nova do projeto
+        # (senao SPs antigos apareceriam na aba Marcacoes de BI).
+        if not regressivo:
+            self._registrar_sp(sp_final, ct_id)
+            for sp_extra in sps_todos:
+                if sp_extra != sp_final:
+                    self._registrar_sp(sp_extra, ct_id)
 
         tags ={"linha": "Celular/Fixo", "afterhours": "AfterHours", "mpl": "MPL", "protocolo": "Protocolo", "adimplencia": "Adimplência"}
         pre_req_partes = [f"ANI {'Não' if perfil == 'aninao' else 'Sim'}"]
@@ -1703,6 +1706,10 @@ class GeradorCT:
             linhas.append(
                 {"codigo": sp["codigo"], "descricao": sp["descricao"], "estado": estado, "ct": ", ".join(cts) if cts else "—"}
             )
+        if not self._sps_novos:
+            # Projeto SEM marcacoes de BI na VersionamentoBI (so prompts/fluxo): os SPs que aparecem
+            # nos CTs sao de versoes anteriores, nao "marcacoes do projeto" — nada a listar.
+            return linhas
         for codigo, cts in self._sp_bi_cobertura.items():
             if not any(l["codigo"] == codigo for l in linhas):
                 linhas.append(
