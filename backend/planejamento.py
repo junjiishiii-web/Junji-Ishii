@@ -161,6 +161,20 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
             f"Fraseologia: {len(prompts_novos)} CT(s) validam os prompts novos marcados na SPEC — texto da locução e, nas "
             "tentativas de erro/silêncio, a escada completa (REJ1+REJ2, SIL1+SIL2) por variante."
         )
+    if regressivos:
+        categorias = Counter(
+            "saídas legadas" if "saída legada" in (c.get("alteracao_relatada") or "")
+            else "entradas alternativas" if "entrada alternativa" in (c.get("alteracao_relatada") or "")
+            else "ANI Sim" if "ANI Sim" in (c.get("alteracao_relatada") or "")
+            else "chave desativada" if "DESATIVADA" in (c.get("alteracao_relatada") or "")
+            else "situação da instalação / elegibilidade"
+            for c in regressivos
+        )
+        estrategia.append(
+            f"Regressão baseada em risco: {len(regressivos)} CT(s) ligados aos estados alterados — "
+            + ", ".join(f"{n} de {k}" for k, n in categorias.most_common())
+            + ". Garantem saídas legadas, entradas alternativas, cliente ANI Sim e chaves desativadas; não cobrem estados que a versão não tocou."
+        )
     cts_concat = [c for c in casos if (c.get("alteracao_relatada") or "").startswith("Concat —")]
     if cts_concat:
         estrategia.append(

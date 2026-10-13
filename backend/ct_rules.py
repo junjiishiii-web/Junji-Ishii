@@ -504,6 +504,10 @@ def _step_transicao(spec_model, estado_nome, t, sp_t, perfil):
     }
 
 
+_CHAVE_DESATIVADA_RE = re.compile(
+    r"chave\s+([A-Za-z][A-Za-z0-9_]{4,})\s+(?:desativad\w*|desligad\w*|inativ\w*|desabilitad\w*|n[aã]o\s+ativ\w*)",
+    re.IGNORECASE,
+)
 _ALT_CONCAT_RE = re.compile(r"concat", re.IGNORECASE)
 _FAMILIA_CONCAT_RE = re.compile(r"(?<![A-Za-z])(REJ|RPT|SIL)\s*(\d?)(?![A-Za-z])", re.IGNORECASE)
 _TOKEN_PROMPT_RE = re.compile(r"\*_?([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)_?\*?")
@@ -685,7 +689,7 @@ class GeradorCT:
         sps_todos = [sp for sp in (sps_todos or []) if sp]
         if sps_todos and not sp_final:
             sp_final = sps_todos[0]
-        sp_pendente = sp_pendente or (sp_final is None and self.tipo_a)
+        sp_pendente = sp_pendente or (sp_final is None and self.tipo_a and not regressivo)
 
         resultado_txt = _formatar_resultado_esperado(steps, sp_final, sp_pendente)
         steps.append(
@@ -1429,6 +1433,189 @@ class GeradorCT:
 
     # ---------- L3/L5/L11: bloco REGRESSIVO ----------
 
+    def gerar_regressao_dirigida(self, bloco_idx, bloco_nome):
+        """
+        Regressao baseada em risco, ligada ao que ESTA versao tocou (alem dos 2 CTs fixos):
+          1. SAIDAS legadas: para cada estado alterado, uma transicao por estado de destino que
+             nao ganhou CT funcional (prioriza as que ja tem SP de versao anterior);
+          2. ENTRADAS alternativas: caminhos que chegam ao estado alterado por outro estado anterior;
+          3. ANI SIM: o estado alterado tambem funciona para cliente identificado;
+          4. CHAVES desativadas citadas nas condicoes do estado (comportamento legado).
+        Limites por estado e no total mantem o volume razoavel.
+        """
+        CAP_SAIDAS_ESTADO, CAP_SAIDAS_TOTAL, CAP_ENTRADAS_TOTAL, CAP_CHAVES, CAP_ANI_SIM = 3, 12, 4, 3, 4
+        estados_spec = self.spec_model["estados"]
+        mapa = self.spec_model["mapa_rotas"]
+        resumo = {"saídas legadas": 0, "entradas alternativas": 0, "ANI Sim": 0, "chaves desativadas": 0}
+
+        alterados, vistos = [], set()
+        for est in getattr(self, "_estados_alterados_ref", None) or []:
+            nome_real = resolver_destino(mapa, est["nome"]) or est["nome"]
+            if nome_real in estados_spec and nome_real not in vistos:
+                vistos.add(nome_real)
+                alterados.append(nome_real)
+        if not alterados:
+            return
+
+        def _perfil_txt(perfil):
+            return "ANINÃO" if perfil == "aninao" else "ANISIM"
+
+        cobertos_saida = {
+            (c["estado"], c["caminho_qa"][-1])
+            for c in self.casos_teste
+            if len(c.get("caminho_qa") or []) >= 2 and c["caminho_qa"][-1] != c["estado"]
+        }
+        chaves_usadas = set()
+        for c in self.casos_teste:
+            if c.get("regressivo"):
+                m = re.search(r"chave\s+([A-Za-zÀ-ú0-9_]+)", c.get("alteracao_relatada") or "", re.IGNORECASE)
+                if m:
+                    chaves_usadas.add(m.group(1).lower())
+
+        # 1) saidas legadas
+        total_saidas = 0
+        for nome in alterados:
+            if total_saidas >= CAP_SAIDAS_TOTAL:
+                break
+            por_destino = {}
+            for t in estados_spec[nome].get("transicoes", []):
+                if _chave_grupo_retentativa(t) is not None or _eh_transicao_rej_sil(t["condicao"]):
+                    continue
+                destino = resolver_destino(mapa, t.get("destino"))
+                if not destino or destino == nome or (nome, destino) in cobertos_saida:
+                    continue
+                sp = _sp_efetivo_transicao(self.spec_model, nome, t)
+                if sp and self._sps_novos and sp[1] in self._sps_novos:
+                    continue  # SP novo: ja tem CT funcional
+                score = 2 if sp else 1
+                atual = por_destino.get(destino)
+                if atual is None or score > atual[0]:
+                    por_destino[destino] = (score, t, sp)
+            escolhidos = sorted(por_destino.items(), key=lambda kv: -kv[1][0])[:CAP_SAIDAS_ESTADO]
+            for destino, (_score, t, sp) in escolhidos:
+                if total_saidas >= CAP_SAIDAS_TOTAL:
+                    break
+                restr = extrair_restricoes_sessao(t["condicao"])
+                caminho, perfil_ef = bfs_caminho_entrada(
+                    self.spec_model, nome, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr
+                )
+                if not caminho:
+                    continue
+                restr = dict(restr)
+                restr["ani"] = perfil_ef
+                completo = caminho + ([destino] if destino != caminho[-1] else [])
+                cond_curta = (t["condicao"] or "")[-90:]
+                gherkin = (
+                    f"Dado cliente {_perfil_txt(perfil_ef)}, Quando seguir a condição '{cond_curta}' no estado {nome}, "
+                    f"Então o fluxo segue para {destino}"
+                    + (f" e o SP legado {sp[0]}={sp[1]} continua sendo registrado." if sp else " sem mudança de comportamento.")
+                )
+                caso = self._add_ct(
+                    bloco_idx, bloco_nome, nome, f"Regressão — saída legada {nome} → {destino} preservada",
+                    perfil_ef, completo, sp_final=sp, regressivo=True, gherkin_override=gherkin,
+                    restricoes=restr, transicao_final=t if len(completo) > len(caminho) else None,
+                )
+                if caso:
+                    total_saidas += 1
+                    resumo["saídas legadas"] += 1
+                    cobertos_saida.add((nome, destino))
+
+        # 2) entradas alternativas + 3) ANI Sim
+        total_entradas = 0
+        for nome in alterados:
+            sd = estados_spec[nome]
+            usadas = {
+                c["caminho_qa"][-2]
+                for c in self.casos_teste
+                if c["estado"] == nome and len(c.get("caminho_qa") or []) >= 2 and c["caminho_qa"][-1] == nome
+            }
+            feitas_estado = 0
+            for ant in sd.get("estados_anteriores", []):
+                if total_entradas >= CAP_ENTRADAS_TOTAL or feitas_estado >= 2:
+                    break
+                p = resolver_destino(mapa, ant) or ant
+                if p in usadas or p == nome or p not in estados_spec:
+                    continue
+                t_ent = next(
+                    (t for t in estados_spec[p].get("transicoes", []) if resolver_destino(mapa, t.get("destino")) == nome), None
+                )
+                if not t_ent:
+                    continue
+                cam_p, perfil_ef = bfs_caminho_entrada(self.spec_model, p, perfil_entrada="aninao")
+                if not cam_p:
+                    continue
+                gherkin = (
+                    f"Dado cliente {_perfil_txt(perfil_ef)}, Quando chegar ao estado {nome} vindo de {p}, "
+                    "Então o estado deve se comportar como antes (entrada alternativa preservada)."
+                )
+                caso = self._add_ct(
+                    bloco_idx, bloco_nome, nome, f"Regressão — entrada alternativa por {p}", perfil_ef,
+                    cam_p + [nome], sp_final=_sp_efetivo_transicao(self.spec_model, p, t_ent), regressivo=True,
+                    gherkin_override=gherkin, transicao_final=t_ent,
+                )
+                if caso:
+                    total_entradas += 1
+                    feitas_estado += 1
+                    resumo["entradas alternativas"] += 1
+
+            do_estado = [c for c in self.casos_teste if c["estado"] == nome and not c["regressivo"]]
+            if do_estado and all(c["perfil"] == "ANINÃO" for c in do_estado) and resumo["ANI Sim"] < CAP_ANI_SIM:
+                cam, perfil_ef = bfs_caminho_entrada(self.spec_model, nome, perfil_entrada="anisim")
+                if cam and perfil_ef == "anisim":
+                    gherkin = (
+                        f"Dado cliente ANISIM, Quando percorrer o caminho de entrada até o estado {nome}, "
+                        "Então o estado deve funcionar para cliente identificado, sem regressão."
+                    )
+                    caso = self._add_ct(
+                        bloco_idx, bloco_nome, nome, "Regressão — cliente ANI Sim no estado alterado", perfil_ef,
+                        cam, regressivo=True, gherkin_override=gherkin,
+                    )
+                    if caso:
+                        resumo["ANI Sim"] += 1
+
+        # 4) chaves desativadas citadas nas condicoes dos estados alterados
+        for nome in alterados:
+            if resumo["chaves desativadas"] >= CAP_CHAVES:
+                break
+            for t in estados_spec[nome].get("transicoes", []):
+                m = _CHAVE_DESATIVADA_RE.search(t["condicao"] or "")
+                if not m or m.group(1).lower() in chaves_usadas:
+                    continue
+                chaves_usadas.add(m.group(1).lower())
+                restr = extrair_restricoes_sessao(t["condicao"])
+                caminho, perfil_ef = bfs_caminho_entrada(
+                    self.spec_model, nome, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr
+                )
+                if not caminho:
+                    continue
+                destino = resolver_destino(mapa, t.get("destino"))
+                completo = caminho + ([destino] if destino and destino != caminho[-1] else [])
+                gherkin = (
+                    f"Dado chave {m.group(1)} DESATIVADA, Quando o cliente percorrer o estado {nome}, "
+                    "Então o fluxo legado é preservado (sem o comportamento novo)."
+                )
+                caso = self._add_ct(
+                    bloco_idx, bloco_nome, nome, f"Regressão (L5) — chave {m.group(1)} DESATIVADA: legado preservado",
+                    perfil_ef, completo, sp_final=_sp_efetivo_transicao(self.spec_model, nome, t), regressivo=True,
+                    gherkin_override=gherkin, restricoes=restr,
+                    transicao_final=t if len(completo) > len(caminho) else None,
+                )
+                if caso:
+                    resumo["chaves desativadas"] += 1
+                break
+
+        total = sum(resumo.values())
+        if total:
+            self.revisao_necessaria.append(
+                {
+                    "tipo": "info_regressao_dirigida",
+                    "detalhe": f"Regressão baseada em risco: {total} CT(s) além dos 2 fixos — "
+                    + ", ".join(f"{n} {k}" for k, n in resumo.items() if n)
+                    + ". Cobrem as saídas legadas, entradas alternativas e perfil ANI Sim dos estados alterados. "
+                    "Não cobrem estados que a versão não tocou nem VDNs/filas (testar à parte).",
+                }
+            )
+
     def gerar_bloco_regressivo(self):
         """
         Bloco REGRESSIVO enxuto e objetivo (L3): so o que e realmente
@@ -1482,6 +1669,8 @@ class GeradorCT:
                 regressivo=True,
                 gherkin_override=gherkin,
             )
+
+        self.gerar_regressao_dirigida(bloco_idx, bloco_nome)
 
         vdns = self.eep_model.get("vdns", [])
         if vdns:

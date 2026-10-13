@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.7',
+    data: '13/10/2026',
+    itens: [
+      'Regressão baseada em risco: além dos 2 CTs fixos, passa a cobrir (com limites) as saídas legadas dos estados alterados, entradas alternativas, cliente ANI Sim e chaves desativadas citadas nas condições.',
+      'CTs regressivos deixam de ser marcados como "SP pendente" (o objetivo deles é provar que nada mudou).',
+    ],
+  },
+  {
     numero: '2.6',
     data: '13/10/2026',
     itens: [
