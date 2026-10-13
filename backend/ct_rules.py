@@ -504,6 +504,8 @@ def _step_transicao(spec_model, estado_nome, t, sp_t, perfil):
     }
 
 
+_ALT_CONCAT_RE = re.compile(r"concat", re.IGNORECASE)
+_FAMILIA_CONCAT_RE = re.compile(r"(?<![A-Za-z])(REJ|RPT|SIL)\s*(\d?)(?![A-Za-z])", re.IGNORECASE)
 _TOKEN_PROMPT_RE = re.compile(r"\*_?([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)_?\*?")
 _CHAVE_RE = re.compile(r"chaves?\s+([A-Za-z][A-Za-z0-9_]{5,})", re.IGNORECASE)
 
@@ -807,6 +809,8 @@ class GeradorCT:
             {"nome": agrupados[c]["nome"], "alteracao": " | ".join(agrupados[c]["alteracoes"])} for c in ordem
         ]
 
+        self._estados_alterados_ref = list(estados_alterados)
+
         if not estados_alterados:
             ivr_usado = self.spec_model.get("ivr_resolvido")
             if ivr_usado:
@@ -904,6 +908,14 @@ class GeradorCT:
                 and any(dicas_estado)
                 and (bool(prompts_novos_estado) or any(_transicao_casa_dicas(t, dicas_estado) for t in transicoes))
             )
+            # Alteracao de montagem/tempo de concat: o que mudou sao as VARIACOES do concat (CTs
+            # proprios mais adiante), nao as ramificacoes do menu.
+            concat_alterado = (
+                not self._sps_novos
+                and bool(_ALT_CONCAT_RE.search(est.get("alteracao") or ""))
+                and bool(self.spec_model["estados"][nome_real].get("concat_exemplos"))
+            )
+            usar_dicas = usar_dicas or concat_alterado
             if not transicoes or (not self._sps_novos and not usar_dicas and len(transicoes) > LIMITE_TRANSICOES_SEM_SP):
                 caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, nome_real, perfil_entrada=perfil_base)
                 self._add_ct(bloco_idx, bloco_nome, nome_real, est["alteracao"], perfil_efetivo, caminho)
@@ -1087,7 +1099,7 @@ class GeradorCT:
                     if sp_entrada and sp_entrada[1] in self._sps_novos and sp_entrada[1] not in self._sp_bi_cobertura:
                         self._registrar_sp(sp_entrada, self.casos_teste[cts_antes]["ct_id"])
 
-            if len(self.casos_teste) == cts_antes and transicoes:
+            if len(self.casos_teste) == cts_antes and transicoes and not concat_alterado:
                 partes = []
                 if sp_antigo_local:
                     partes.append(f"{sp_antigo_local} transição(ões) com SP antigo (fora da VersionamentoBI)")
@@ -1147,6 +1159,98 @@ class GeradorCT:
             )
 
     # ---------- L9: fraseologia obrigatoria p/ prompts na cor do projeto ----------
+
+    def gerar_cts_concat(self):
+        """
+        Estados cuja alteracao cita "concat" (montagem dinamica do prompt, tempo de silencio entre
+        trechos...): cada VARIACAO de montagem descrita no estado ("Exemplo se o cliente tem 1
+        produto", "...todos os produtos", "...base de Repeticao") vira um CT; as tentativas de uma
+        mesma escada (REJ1+REJ2, RPT1+RPT2, SIL) ficam juntas, como nas demais escadas.
+        """
+        estados = getattr(self, "_estados_alterados_ref", None) or []
+        bloco_idx = len(self._blocos) + 1
+        criado_bloco = False
+        for est in estados:
+            if not _ALT_CONCAT_RE.search(est.get("alteracao") or ""):
+                continue
+            nome_real = resolver_destino(self.spec_model["mapa_rotas"], est["nome"]) or est["nome"]
+            exemplos = (self.spec_model["estados"].get(nome_real) or {}).get("concat_exemplos") or []
+            if not exemplos:
+                continue
+            caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, nome_real, perfil_entrada="aninao")
+            if not caminho:
+                continue
+            perfil_txt = "ANINÃO" if perfil_efetivo == "aninao" else "ANISIM"
+
+            grupos = {}
+            for ex in exemplos:
+                m = _FAMILIA_CONCAT_RE.search(ex["titulo"].replace("Exemplo", "", 1))
+                chave = (ex["secao"], m.group(1).upper()) if m else (ex["secao"], "VAR", ex["titulo"])
+                grupos.setdefault(chave, []).append(ex)
+
+            for chave, lista in grupos.items():
+                if not criado_bloco:
+                    bloco_nome = f"Bloco {bloco_idx}"
+                    self._blocos.append(
+                        {"numero": bloco_idx, "nome": bloco_nome, "cor": self._cor_bloco(bloco_idx), "titulo": f"{bloco_nome} — Concat {nome_real}"}
+                    )
+                    criado_bloco = True
+                secao = chave[0]
+                condicao_secao = ""
+                m_ch = re.search(r"CHAVE\s+([A-Za-z0-9_]+)", secao, re.IGNORECASE)
+                if m_ch:
+                    condicao_secao = f" (chave {m_ch.group(1)} ativa)"
+                elif secao and not re.fullmatch(r"EXEMPLOS DE CONCAT:?", secao.strip(), re.IGNORECASE):
+                    condicao_secao = " (" + secao[:80].capitalize() + ")"
+                else:
+                    condicao_secao = " (regra geral — chave desativada)"
+
+                steps_extra, sps = [], []
+                for ex in lista:
+                    rotulo = re.sub(r"^\s*Exemplo\s*", "", ex["titulo"], flags=re.IGNORECASE).strip(" :") or ex["titulo"]
+                    tempos = sorted({f"{n} ms" for n in re.findall(r"(\d+)\s*ms", ex["concat"] or "")})
+                    detalhe = f"Concat: {ex['concat']}" if ex["concat"] else ""
+                    if tempos:
+                        detalhe += f" | silêncio entre os trechos: {', '.join(tempos)}"
+                    steps_extra.append(
+                        {
+                            "step_num": 0,
+                            "acao": f"Ouvir a montagem do prompt — {rotulo}",
+                            "estado": nome_real,
+                            "prompt_id": f"{nome_real}_Concat",
+                            "prompt_texto": ex["texto"],
+                            "sp": ex.get("sp"),
+                            "resultado": (f"{ex['sp'][0]}={ex['sp'][1]} — " if ex.get("sp") else "") + ex["texto"] + (f" | {detalhe}" if detalhe else ""),
+                        }
+                    )
+                    if ex.get("sp") and ex["sp"] not in sps:
+                        sps.append(ex["sp"])
+
+                rotulos = " / ".join(
+                    re.sub(r"^\s*Exemplo\s*", "", e["titulo"], flags=re.IGNORECASE).strip(" :") for e in lista
+                )
+                if len(chave) == 3:
+                    perfil_variacao = re.sub(r"^(se )?(o )?", "", rotulos.strip(" ."), flags=re.IGNORECASE)
+                    quando = f"entrar no estado {nome_real} — {perfil_variacao[:90]}"
+                else:
+                    fam = {"REJ": "errar a opção", "RPT": "pedir para repetir as opções", "SIL": "ficar em silêncio"}[chave[1]]
+                    quando = f"o cliente {fam} ({len(lista)} tentativa(s))"
+                gherkin = (
+                    f"Dado cliente {perfil_txt}{condicao_secao}, Quando {quando}, Então a locução deve ser montada "
+                    f"conforme o Concat da SPEC, com o tempo de silêncio entre os trechos."
+                )
+                self._add_ct(
+                    bloco_idx,
+                    f"Bloco {bloco_idx}",
+                    nome_real,
+                    f"Concat — {rotulos[:120]}{condicao_secao}",
+                    perfil_efetivo,
+                    caminho,
+                    sp_final=sps[0] if sps else None,
+                    sps_todos=sps,
+                    gherkin_override=gherkin,
+                    steps_extra=steps_extra,
+                )
 
     def _transicao_que_toca_prompt(self, estado, prompt):
         """(origem, transicao) de uma transicao que leva a `estado` tocando `prompt` como
@@ -1464,6 +1568,8 @@ class GeradorCT:
                 "legenda": [],
                 "blocos": [],
             }
+        self._progresso(80, "Mapeando as variações de concat...")
+        self.gerar_cts_concat()
         self._progresso(82, "Verificando fraseologia obrigatória (L9)...")
         self.gerar_cts_fraseologia(itens_cor or {})
         self._progresso(90, "Montando o bloco regressivo...")

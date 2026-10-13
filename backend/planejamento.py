@@ -161,6 +161,12 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
             f"Fraseologia: {len(prompts_novos)} CT(s) validam os prompts novos marcados na SPEC — texto da locução e, nas "
             "tentativas de erro/silêncio, a escada completa (REJ1+REJ2, SIL1+SIL2) por variante."
         )
+    cts_concat = [c for c in casos if (c.get("alteracao_relatada") or "").startswith("Concat —")]
+    if cts_concat:
+        estrategia.append(
+            f"Concat: {len(cts_concat)} CT(s) cobrem as variações de montagem do prompt (por perfil de produtos, e as "
+            "escadas REJ/RPT/SIL), conferindo a locução montada e o tempo de silêncio entre os trechos."
+        )
     if perfis:
         estrategia.append(
             "Perfis de entrada exercitados: "

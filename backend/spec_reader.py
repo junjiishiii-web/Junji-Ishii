@@ -171,7 +171,9 @@ def parse_state_sheet(sheet):
         "obs": "",
         "prompts": [],
         "transicoes": [],
+        "concat_exemplos": [],
     }
+    secao_concat = ""
 
     section = None
     mapa_prompt = None
@@ -237,6 +239,25 @@ def parse_state_sheet(sheet):
             texto = _valor(row, mapa_prompt["texto"])
             marcacao = _valor(row, mapa_prompt["sp"])
             eh_secao = not texto and prompt_id.upper() == prompt_id and len(prompt_id) > 3
+            if eh_secao:
+                # "EXEMPLOS DE CONCAT PARA CHAVE ..." abre uma secao de exemplos; outro titulo a encerra.
+                secao_concat = re.sub(r"\s+", " ", prompt_id) if prompt_id.upper().startswith("EXEMPLOS") else ""
+            if prompt_id and texto and "exemplo" in prompt_id.lower() and not eh_secao:
+                # Estados dinamicos (menu montado por concat) descrevem cada variacao como "Exemplo ...".
+                concat_txt = next(
+                    (re.sub(r"\s+", " ", str(v)).strip() for v in row if isinstance(v, str) and v.strip().lower().startswith("concat")),
+                    "",
+                )
+                dados["concat_exemplos"].append(
+                    {
+                        "secao": secao_concat,
+                        "titulo": re.sub(r"\s+", " ", prompt_id).strip(),
+                        "texto": texto,
+                        "concat": concat_txt,
+                        "sp": classificar_sp(marcacao) if re.search(r"\d{3,}", marcacao or "") else None,
+                        "sp_raw": marcacao or None,
+                    }
+                )
             if prompt_id and texto and "exemplo" not in prompt_id.lower() and not eh_secao:
                 dados["prompts"].append(
                     {
@@ -737,9 +758,8 @@ def _filtrar_estados_por_cor(spec_path_or_bytes, wb, versionamento):
     # A cor que marca as linhas dos estados (ex.: amarelo) costuma ser a MESMA usada nas celulas
     # alteradas das abas de estado, e pode ser diferente da cor do cabecalho do bloco.
     versionamento["cores_estados"] = sorted({cores[e["linha"]] for e in marcados})
-    if marcados and len(marcados) < len(estados):
-        versionamento["ignorados_sem_cor"] = [e["nome"] for e in estados if e.get("linha") not in cores]
-        versionamento["estados_alterados"] = marcados
+    # Linhas em branco NAO saem do escopo: o amarelo marca onde ha celula alterada, mas uma linha do
+    # versionamento sem cor tambem pode ser alteracao real (ex.: tempo de silencio entre concats).
 
 
 def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="", eep_jira=""):

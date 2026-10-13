@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.6',
+    data: '13/10/2026',
+    itens: [
+      'Estados com montagem por concat (ex.: MenuDinamicoTecnico): quando o versionamento cita concat/tempo de silêncio, cada variação de montagem descrita nos "Exemplo ..." vira CT (por perfil de produtos e por chave), com as escadas REJ, RPT e SIL agrupadas.',
+      'Linhas do versionamento sem cor não saem mais do escopo (só as cores passam a identificar células alteradas).',
+    ],
+  },
+  {
     numero: '2.5',
     data: '13/10/2026',
     itens: [
