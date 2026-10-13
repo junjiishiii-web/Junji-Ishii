@@ -149,6 +149,22 @@ def _escrever_bi_marcacoes(wb, plano):
         ws.cell(row=i, column=3, value=linha.get("estado") or "—")
         ws.cell(row=i, column=4, value=linha["ct"])
 
+    # Secao propria: SPs ja existentes em producao, conferidos nos CTs regressivos.
+    legados = plano.get("sps_regressao") or []
+    if legados:
+        inicio = len(plano["bi_marcacoes"]) + 4
+        titulo = ws.cell(row=inicio - 1, column=1, value="ScriptPoints JÁ EXISTENTES (produção) conferidos na regressão")
+        titulo.font = Font(name=FONT_NAME, bold=True)
+        for j, h in enumerate(["ScriptPoint", "Tipo", "Estado", "CT Regressivo"], start=1):
+            cell = ws.cell(row=inicio, column=j, value=h)
+            cell.font = Font(name=FONT_NAME, bold=True, color="FFFFFF")
+            cell.fill = HEADER_FILL
+        for k, linha in enumerate(legados, start=inicio + 1):
+            ws.cell(row=k, column=1, value=linha["codigo"])
+            ws.cell(row=k, column=2, value=linha["tipo"])
+            ws.cell(row=k, column=3, value=linha["estado"])
+            ws.cell(row=k, column=4, value=linha["ct"])
+
 
 def _escrever_legenda(wb, plano):
     ws = wb.create_sheet("Legenda")

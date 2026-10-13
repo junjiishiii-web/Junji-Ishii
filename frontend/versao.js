@@ -3,11 +3,18 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.9',
+    data: '13/10/2026',
+    itens: [
+      'Marcações de BI: os SPs já existentes em produção conferidos pelos CTs regressivos aparecem numa seção própria, separada das marcações novas do projeto (também no xlsx).',
+    ],
+  },
+  {
     numero: '2.8',
     data: '13/10/2026',
     itens: [
       'Marcações de BI: projeto sem marcações na VersionamentoBI (só alteração de prompts) passa a mostrar a aba vazia — SPs antigos que aparecem nos CTs não são mais listados como marcações do projeto.',
-      'CTs regressivos não contam mais como cobertura de marcação de BI (evita SP legado na aba Marcações de BI).',
+      'CTs regressivos continuam conferindo SPs já existentes em produção, mas eles não entram na lista de marcações do projeto (ver 2.9).',
     ],
   },
   {

@@ -101,6 +101,7 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
         "casos_teste": plano["casos_teste"],
         "revisao_necessaria": plano["revisao_necessaria"],
         "bi_marcacoes": plano["bi_marcacoes"],
+        "sps_regressao": plano.get("sps_regressao") or [],
         "legenda": plano["legenda"],
         "planejamento": montar_planejamento(plano, eep_model, spec_model, ivr_efetivo, tipo_a),
         "versao_spec": spec_model["versionamento"].get("versao"),
@@ -130,6 +131,7 @@ def dados_do_navegador_para_exportacao(dados):
         "casos_teste": casos,
         "revisao_necessaria": dados.get("revisao_necessaria") or [],
         "bi_marcacoes": dados.get("bi_marcacoes") or [],
+        "sps_regressao": dados.get("sps_regressao") or [],
         "legenda": legenda,
         "blocos": [{"titulo": l.get("titulo", "")} for l in legenda],
     }

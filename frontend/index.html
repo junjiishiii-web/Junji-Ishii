@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=20261018" />
-  <script src="versao.js?v=2.8"></script>
+  <link rel="stylesheet" href="style.css?v=20261019" />
+  <script src="versao.js?v=2.9"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -168,6 +168,25 @@
           <tbody id="biMarcacoesBody"></tbody>
         </table>
       </div>
+      <div id="biRegressaoBox" style="display:none; margin-top:26px;">
+        <h3 class="section-title">ScriptPoints já existentes (produção) conferidos na regressão</h3>
+        <p style="font-size:12px; color:#666; margin-bottom:12px;">
+          Não são marcações novas deste projeto: são SPs legados que os CTs regressivos validam para provar que continuam sendo registrados.
+        </p>
+        <div class="history-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:120px;">ScriptPoint</th>
+                <th style="width:90px;">Tipo</th>
+                <th>Estado</th>
+                <th style="width:200px;">CT Regressivo</th>
+              </tr>
+            </thead>
+            <tbody id="biRegressaoBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- MASSA DE TESTES -->
@@ -305,7 +324,7 @@
             <tr><th>Aba</th><th>Para que serve</th></tr>
             <tr><td><strong>Geral</strong></td><td>Projeto/IVR, total de CTs, chaves sistêmicas do EEP, um cartão por CT (mapeado ou “SP pendente”) e o histórico de alterações por estado.</td></tr>
             <tr><td><strong>Planejamento</strong></td><td>Plano de homologação completo: resumo, identificação, objetivo, contexto e regras de negócio (extraídos do EEP), escopo, estratégia, cobertura, massa de testes, premissas, restrições, riscos e critérios de entrada, saída e falha. Cada bloco indica a fonte (EEP, SPEC ou gerado pela ferramenta); o que o EEP não trouxe aparece em “Lacunas do EEP”.</td></tr>
-            <tr><td><strong>Marcações de BI</strong></td><td>ScriptPoints marcados na VersionamentoBI para o projeto, o estado de cada marcação e qual CT cobre cada um.</td></tr>
+            <tr><td><strong>Marcações de BI</strong></td><td>ScriptPoints marcados na VersionamentoBI para o projeto, o estado de cada marcação e qual CT cobre cada um. Abaixo, em separado, os SPs já existentes em produção que os CTs regressivos conferem.</td></tr>
             <tr><td><strong>Massa de Testes</strong></td><td>Tabela dos CTs com perfil/condição de entrada, contrato, avaliação e comentários.</td></tr>
             <tr><td><strong>Legenda</strong></td><td>Cores dos blocos da modelagem e VDNs de transferência extraídos do EEP.</td></tr>
             <tr><td><strong>Cenários (BDD)</strong></td><td>O roteiro completo de cada CT: Gherkin, pré-requisito e tabela de steps (ação, estado/prompt, resultado esperado). O botão <em>📋 Copiar</em> copia os steps do CT.</td></tr>
@@ -1594,6 +1613,15 @@
           <td>${escHtml(sp.ct)}</td>
         </tr>`;
     });
+    const legados = data.sps_regressao || [];
+    document.getElementById('biRegressaoBox').style.display = legados.length ? 'block' : 'none';
+    document.getElementById('biRegressaoBody').innerHTML = legados.map(sp => `
+      <tr>
+        <td><strong>${escHtml(sp.codigo)}</strong></td>
+        <td>${escHtml(sp.tipo)}</td>
+        <td>${escHtml(sp.estado)}</td>
+        <td>${escHtml(sp.ct)}</td>
+      </tr>`).join('');
     if (!data.bi_marcacoes || data.bi_marcacoes.length === 0) {
       biBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:20px;">
         Nenhum ScriptPoint novo encontrado na aba Versionamento BI.</td></tr>`;

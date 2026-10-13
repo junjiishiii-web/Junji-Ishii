@@ -644,6 +644,7 @@ class GeradorCT:
         self._transicoes_ignoradas_sp_antigo = 0
         self._transicoes_ignoradas_sem_sp = 0
         self._transicoes_fora_da_alteracao = 0
+        self._sp_regressao = {}
         self._dicas_por_estado = {}
 
     def _progresso(self, pct, etapa):
@@ -720,8 +721,15 @@ class GeradorCT:
 
         sufixo = "b" if sp_pendente and self.tipo_a else ""
         ct_id = self._novo_id(sufixo)
-        # CT regressivo confere SP LEGADO: nao conta como cobertura de marcacao nova do projeto
-        # (senao SPs antigos apareceriam na aba Marcacoes de BI).
+        # CT regressivo confere SP LEGADO (ja em producao): fica numa lista PROPRIA, separada das
+        # marcacoes novas do projeto (senao SPs antigos apareceriam como marcacao do projeto).
+        if regressivo:
+            for sp_reg in ([sp_final] if sp_final else []) + [sp for sp in sps_todos if sp != sp_final]:
+                reg = self._sp_regressao.setdefault(sp_reg[1], {"codigo": sp_reg[1], "tipo": sp_reg[0], "cts": [], "estados": []})
+                if ct_id not in reg["cts"]:
+                    reg["cts"].append(ct_id)
+                if estado not in reg["estados"]:
+                    reg["estados"].append(estado)
         if not regressivo:
             self._registrar_sp(sp_final, ct_id)
             for sp_extra in sps_todos:
@@ -1687,6 +1695,13 @@ class GeradorCT:
                 }
             )
 
+    def sps_regressao(self):
+        """ScriptPoints JA EXISTENTES (producao) que os CTs regressivos conferem."""
+        return [
+            {"codigo": r["codigo"], "tipo": r["tipo"], "estado": ", ".join(r["estados"]), "ct": ", ".join(r["cts"])}
+            for r in sorted(self._sp_regressao.values(), key=lambda r: (r["tipo"], r["codigo"]))
+        ]
+
     def bi_marcacoes(self):
         estado_do_ct = {c["ct_id"]: c["estado"] for c in self.casos_teste}
 
@@ -1761,6 +1776,7 @@ class GeradorCT:
                 "casos_teste": [],
                 "revisao_necessaria": self.revisao_necessaria,
                 "bi_marcacoes": self.bi_marcacoes(),
+                "sps_regressao": [],
                 "legenda": [],
                 "blocos": [],
             }
@@ -1812,6 +1828,7 @@ class GeradorCT:
             "casos_teste": self.casos_teste,
             "revisao_necessaria": self.revisao_necessaria,
             "bi_marcacoes": self.bi_marcacoes(),
+            "sps_regressao": self.sps_regressao(),
             "legenda": self.legenda_blocos(),
             "blocos": self._blocos,
         }
