@@ -459,7 +459,7 @@ def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "V
                 or re.match(r"^(?:v\.?\s*\d|ivr)", str(linha[0] or "").strip().lower())
             ):
                 break
-            estados_alterados.append({"nome": estado_nome, "alteracao": alteracao_desc})
+            estados_alterados.append({"nome": estado_nome, "alteracao": alteracao_desc, "linha": idx + 1})
 
     return {
         "blocos": len(rows_ivr),
@@ -717,6 +717,28 @@ def _diagnostico_versionamento(wb):
     return {"abas": abas, "ultimos_ivrs": [f"IVR-{c}" for c in codigos[-6:]], "total_ivrs": len(codigos)}
 
 
+def _filtrar_estados_por_cor(spec_path_or_bytes, wb, versionamento):
+    """Quando so ALGUMAS linhas do bloco do projeto estao pintadas (ex.: amarelo) e as
+    demais ficam em branco, o escopo do projeto sao as pintadas — as brancas costumam ser
+    de outras entregas mescladas no mesmo bloco. Se todas ou nenhuma estiverem pintadas, mantem todas."""
+    estados = versionamento.get("estados_alterados") or []
+    if len(estados) < 2 or not hasattr(spec_path_or_bytes, "seek"):
+        return
+    try:
+        from color_utils import cor_por_linha
+
+        aba = _achar_aba_versionamento(wb, ("_Versionamento_", "Versionamento"), bi=False)
+        spec_path_or_bytes.seek(0)
+        cores = cor_por_linha(spec_path_or_bytes, aba.title, "C")
+        spec_path_or_bytes.seek(0)
+    except Exception:
+        return
+    marcados = [e for e in estados if e.get("linha") in cores]
+    if marcados and len(marcados) < len(estados):
+        versionamento["ignorados_sem_cor"] = [e["nome"] for e in estados if e.get("linha") not in cores]
+        versionamento["estados_alterados"] = marcados
+
+
 def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="", eep_jira=""):
     """Le a SPEC inteira e devolve o modelo estrutural cru (sem regras de CT ainda)."""
     wb = _abrir_workbook(spec_path_or_bytes)
@@ -739,6 +761,7 @@ def read_spec(spec_path_or_bytes, ivr_code=None, eep_nome=None, eep_filename="",
 
     versionamento = parse_versionamento(wb, ivr_code)
     versionamento_bi = parse_versionamento_bi(wb, ivr_code)
+    _filtrar_estados_por_cor(spec_path_or_bytes, wb, versionamento)
 
     # Codigo informado que nao existe nesta SPEC: ve se o nome do projeto do EEP
     # aponta para outro bloco — so para SUGERIR ao usuario (nunca usa sozinho).

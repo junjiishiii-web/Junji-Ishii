@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.4',
+    data: '13/10/2026',
+    itens: [
+      'Projetos sem ScriptPoint novo (só alteração/inclusão de prompts, ex.: IVR-173251): testa o que o versionamento cita (prompts, chaves e DTMFs) em vez de todas as ramificações do estado — a modelagem caiu de 182 para cerca de 60 CTs na SPEC de teste.',
+      'Prompts citados no versionamento ("*_AgendamentoDeVT") entram na validação de fraseologia mesmo sem cor na célula.',
+      'Quando só algumas linhas do bloco do projeto estão pintadas (ex.: amarelo), o escopo passa a ser só as pintadas; os estados em branco são listados em Revisão Necessária.',
+    ],
+  },
+  {
     numero: '2.3',
     data: '13/10/2026',
     itens: [

@@ -74,6 +74,27 @@ def _sheet_name_to_part(spec_bytes, sheet_name):
         return target if target.startswith("xl/") else "xl/" + target
 
 
+def cor_por_linha(spec_bytes, nome_aba, coluna="C"):
+    """{numero_da_linha: cor} do preenchimento da celula `coluna` de cada linha da aba
+    (so linhas com cor de verdade; branco/sem preenchimento ficam de fora)."""
+    part = _sheet_name_to_part(spec_bytes, nome_aba)
+    if not part:
+        return {}
+    fill_colors, xf_to_fill = get_fill_maps(spec_bytes)
+    with zipfile.ZipFile(spec_bytes, "r") as z:
+        sheet_xml = etree.fromstring(z.read(part))
+    sem_cor = ("", "00000000", "FFFFFFFF", "theme:0")
+    saida = {}
+    for cell in sheet_xml.iter(f"{{{NS}}}c"):
+        ref = cell.get("r") or ""
+        if not ref.startswith(coluna) or not ref[len(coluna):].isdigit():
+            continue
+        cor = cell_color(cell, xf_to_fill, fill_colors)
+        if cor not in sem_cor:
+            saida[int(ref[len(coluna):])] = cor
+    return saida
+
+
 def _shared_strings(spec_bytes):
     with zipfile.ZipFile(spec_bytes, "r") as z:
         if "xl/sharedStrings.xml" not in z.namelist():

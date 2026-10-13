@@ -504,6 +504,33 @@ def _step_transicao(spec_model, estado_nome, t, sp_t, perfil):
     }
 
 
+_TOKEN_PROMPT_RE = re.compile(r"\*_?([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)_?\*?")
+_CHAVE_RE = re.compile(r"chaves?\s+([A-Za-z][A-Za-z0-9_]{5,})", re.IGNORECASE)
+
+
+def _dicas_alteracao(alteracao):
+    """O que o changelog cita explicitamente: prompts (ex.: "*_SupeitaDeOutage_Cob" -> a parte
+    depois de "*_") e chaves ("chave BasesHabilitaSmartVT"). Servem para testar SO o que mudou
+    quando nao ha ScriptPoint novo para guiar."""
+    texto = alteracao or ""
+    prompts = {normalizar_chave(m.group(1)).strip("_") for m in _TOKEN_PROMPT_RE.finditer(texto)}
+    prompts = {p for p in prompts if len(p) >= 4}
+    chaves = {normalizar_chave(m.group(1)) for m in _CHAVE_RE.finditer(texto)}
+    dtmfs = {m.group(1) for m in re.finditer(r"dtmf\s*(\d)", texto, re.IGNORECASE)}
+    return prompts, chaves, dtmfs
+
+
+def _transicao_casa_dicas(t, dicas):
+    prompts, chaves, dtmfs = dicas
+    alvo_prompt = normalizar_chave(t.get("prox_prompt") or "")
+    if alvo_prompt and any(p in alvo_prompt for p in prompts):
+        return True
+    cond = normalizar_chave(t.get("condicao") or "")
+    if any(c in cond for c in chaves):
+        return True
+    return any(re.search(rf"dtmf_?{d}(?!\d)", cond) for d in dtmfs)
+
+
 def _acao_para_step(idx, condicao, perfil):
     if idx == 0:
         return f"Ligar na URA ({'ANI Não' if perfil == 'aninao' else 'ANI Sim'})"
@@ -610,6 +637,8 @@ class GeradorCT:
         self._sps_novos = {sp["codigo"] for sp in spec_model.get("versionamento_bi", []) if sp.get("codigo")}
         self._transicoes_ignoradas_sp_antigo = 0
         self._transicoes_ignoradas_sem_sp = 0
+        self._transicoes_fora_da_alteracao = 0
+        self._dicas_por_estado = {}
 
     def _progresso(self, pct, etapa):
         if self._progress_callback:
@@ -862,7 +891,20 @@ class GeradorCT:
             # limite abaixo fica acima do maior estado do projeto de
             # referencia validado, pra nao regredir esse caso legitimo.
             LIMITE_TRANSICOES_SEM_SP = 50
-            if not transicoes or (not self._sps_novos and len(transicoes) > LIMITE_TRANSICOES_SEM_SP):
+            # Sem SP novo: se o changelog cita prompts/chaves e alguma transicao do estado os usa,
+            # testa so essas (o que de fato mudou) em vez de todas as ramificacoes do estado.
+            dicas_estado = _dicas_alteracao(est.get("alteracao"))
+            self._dicas_por_estado[nome_real] = dicas_estado
+            prompts_novos_estado = [
+                p for p in self.spec_model["estados"][nome_real].get("prompts", [])
+                if any(tok in normalizar_chave(p["id"]) for tok in dicas_estado[0])
+            ]
+            usar_dicas = (
+                not self._sps_novos
+                and any(dicas_estado)
+                and (bool(prompts_novos_estado) or any(_transicao_casa_dicas(t, dicas_estado) for t in transicoes))
+            )
+            if not transicoes or (not self._sps_novos and not usar_dicas and len(transicoes) > LIMITE_TRANSICOES_SEM_SP):
                 caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, nome_real, perfil_entrada=perfil_base)
                 self._add_ct(bloco_idx, bloco_nome, nome_real, est["alteracao"], perfil_efetivo, caminho)
                 continue
@@ -878,6 +920,7 @@ class GeradorCT:
             sp_antigo_local = 0
             sem_sp_local = 0
             sem_caminho_local = 0
+            fora_alt_local = 0
             def _avaliar(t):
                 """(sp_efetivo, status) — status: 'ok' | 'antigo' | 'sem_sp'."""
                 sp_t = _sp_efetivo_transicao(self.spec_model, nome_real, t)
@@ -890,6 +933,8 @@ class GeradorCT:
                 if estado_novo and _eh_transicao_rej_sil(t["condicao"]):
                     return sp_t, "ok"
                 if not self._sps_novos:
+                    if usar_dicas and not _transicao_casa_dicas(t, dicas_estado):
+                        return sp_t, "fora_alteracao"
                     return sp_t, "ok"
                 if sp_t and sp_t[1] not in self._sps_novos:
                     # SP ja existia antes desta versao (nao esta na lista de
@@ -905,8 +950,11 @@ class GeradorCT:
                 return sp_t, "ok"
 
             def _contar_ignorada(status):
-                nonlocal sp_antigo_local, sem_sp_local
-                if status == "antigo":
+                nonlocal sp_antigo_local, sem_sp_local, fora_alt_local
+                if status == "fora_alteracao":
+                    self._transicoes_fora_da_alteracao += 1
+                    fora_alt_local += 1
+                elif status == "antigo":
                     self._transicoes_ignoradas_sp_antigo += 1
                     sp_antigo_local += 1
                 elif status == "sem_sp":
@@ -1045,6 +1093,11 @@ class GeradorCT:
                     partes.append(f"{sp_antigo_local} transição(ões) com SP antigo (fora da VersionamentoBI)")
                 if sem_sp_local:
                     partes.append(f"{sem_sp_local} transição(ões) sem nenhuma marcação de SP")
+                if fora_alt_local:
+                    partes.append(
+                        f"{fora_alt_local} transição(ões) não citadas pelo versionamento (a alteração é de prompts/chaves: "
+                        "os prompts novos são validados nos CTs de fraseologia)"
+                    )
                 if sem_caminho_local:
                     partes.append(f"{sem_caminho_local} transição(ões) sem caminho de entrada encontrado (BFS)")
                 motivo = (
@@ -1118,6 +1171,18 @@ class GeradorCT:
         1 CT por escada SIL (REJ1+REJ2 juntos, SIL1+SIL2 juntos), e 1 CT por prompt avulso.
         Prompts que ja aparecem em algum step de outro CT nao geram CT duplicado.
         """
+        itens_cor = dict(itens_cor or {})
+        if not self._sps_novos:
+            # Sem SP novo, os prompts que o changelog cita ("*_AgendamentoDeVT"...) sao os novos.
+            for estado_nome, (tokens_prompt, _chaves, _dtmfs) in self._dicas_por_estado.items():
+                sd = self.spec_model["estados"].get(estado_nome, {})
+                sinteticos = [
+                    (0, 0, p["id"], "")
+                    for p in sd.get("prompts", [])
+                    if any(tok in normalizar_chave(p["id"]) for tok in tokens_prompt)
+                ]
+                if sinteticos:
+                    itens_cor.setdefault(estado_nome, []).extend(sinteticos)
         if not itens_cor:
             return
         cobertos = {p["prompt_id"] for c in self.casos_teste for p in c["steps"] if p.get("prompt_id") not in (None, "—")}
@@ -1404,6 +1469,24 @@ class GeradorCT:
         self._progresso(90, "Montando o bloco regressivo...")
         self.gerar_bloco_regressivo()
         self._progresso(96, "Organizando blocos, legenda e BI...")
+        if self._transicoes_fora_da_alteracao:
+            self.revisao_necessaria.append(
+                {
+                    "tipo": "info_transicoes_fora_da_alteracao",
+                    "detalhe": f"Sem ScriptPoint novo na VersionamentoBI, testei só as transições ligadas ao que o "
+                    f"versionamento cita (prompts e chaves). {self._transicoes_fora_da_alteracao} transição(ões) "
+                    "dos mesmos estados que não aparecem no changelog foram deixadas de fora (preservação do fluxo).",
+                }
+            )
+        ignorados_cor = self.spec_model["versionamento"].get("ignorados_sem_cor") or []
+        if ignorados_cor:
+            self.revisao_necessaria.append(
+                {
+                    "tipo": "info_estados_sem_cor_ignorados",
+                    "detalhe": "Só algumas linhas do bloco do projeto estão pintadas no versionamento; considerei apenas as "
+                    "pintadas. Estados sem cor, fora do escopo: " + ", ".join(ignorados_cor) + ".",
+                }
+            )
         if self._transicoes_ignoradas_sp_antigo:
             self.revisao_necessaria.append(
                 {
