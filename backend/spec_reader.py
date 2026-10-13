@@ -451,13 +451,12 @@ def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "V
                 if not alteracao_desc:
                     break
                 continue
-            # Fim do bloco: o proximo cabecalho de versao (codigo na col. A, data na col. B ou
-            # titulo "IVR-N - ..." na col. C) — em algumas SPECs os blocos vem colados, sem linha em branco.
+            # Fim do bloco: o proximo cabecalho de versao (versao/codigo IVR na col. A ou
+            # titulo "IVR-N - ..." na col. C; a col. A "Merge em" + data na B faz parte do bloco) — em algumas SPECs os blocos vem colados, sem linha em branco.
             if (
                 "ivr" in estado_nome.lower()
                 or re.match(r"^v\.\d+", estado_nome.lower())
-                or str(linha[0] or "").strip()
-                or isinstance(linha[1], (datetime.date, datetime.datetime))
+                or re.match(r"^(?:v\.?\s*\d|ivr)", str(linha[0] or "").strip().lower())
             ):
                 break
             estados_alterados.append({"nome": estado_nome, "alteracao": alteracao_desc})

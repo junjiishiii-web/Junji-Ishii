@@ -6,6 +6,7 @@ window.MODELER_VERSOES = [
     numero: '2.3',
     data: '13/10/2026',
     itens: [
+      'Correção: SPECs em que as linhas do bloco têm "Merge em" + data (ex.: NET) voltaram a ser lidas — a versão 2.1 ia parar o bloco nessas linhas e gerava 0 CTs.',
       'CT que marca um SP sem trocar de estado (ex.: digitar * no PegaCPF) agora traz o step com a AÇÃO que gera a marcação — antes mostrava o SP sem dizer como provocá-lo.',
     ],
   },
