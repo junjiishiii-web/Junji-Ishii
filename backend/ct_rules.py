@@ -468,6 +468,42 @@ def _step_retentativa(spec_model, estado_nome, t, sp_t):
     }
 
 
+def _step_transicao(spec_model, estado_nome, t, sp_t, perfil):
+    """Step da ACAO que dispara uma transicao quando o CT nao chega a trocar de estado
+    (destino "Mesmo Estado", pseudo-destino como "Seguir resultados de ..."): sem ele o CT
+    mostraria o SP mas nao a acao que o gera (ex.: digitar * para marcar o spt)."""
+    state_data = spec_model["estados"].get(estado_nome, {})
+    alvo = (t.get("prox_prompt") or "").strip()
+    prompt = None
+    if alvo and alvo.lower() not in ("nan", "- sem prompt -"):
+        prompt = _achar_prompt_por_id(state_data.get("prompts", []), normalizar_chave(alvo))
+    texto = prompt["texto"] if prompt and prompt.get("texto") else None
+    destino_bruto = (t.get("destino") or "").strip()
+    destino_real = resolver_destino(spec_model["mapa_rotas"], destino_bruto)
+    if destino_real and destino_real != estado_nome:
+        destino_txt = f"segue para {destino_real}"
+    elif destino_real == estado_nome or destino_bruto.lower().startswith("mesmo"):
+        destino_txt = "permanece no estado"
+    elif destino_bruto:
+        destino_txt = f"segue conforme a SPEC: {destino_bruto}"
+    else:
+        destino_txt = ""
+    if sp_t:
+        marcado = f"{sp_t[0]}={sp_t[1]}" + (f" — {texto}" if texto else "")
+    else:
+        marcado = texto or ""
+    resultado = " | ".join(x for x in (marcado, destino_txt) if x) or "—"
+    return {
+        "step_num": 0,
+        "acao": _acao_para_step(1, t["condicao"], perfil),
+        "estado": estado_nome,
+        "prompt_id": prompt["id"] if prompt else "—",
+        "prompt_texto": texto or "—",
+        "sp": sp_t,
+        "resultado": resultado,
+    }
+
+
 def _acao_para_step(idx, condicao, perfil):
     if idx == 0:
         return f"Ligar na URA ({'ANI Não' if perfil == 'aninao' else 'ANI Sim'})"
@@ -927,6 +963,13 @@ class GeradorCT:
                     steps_jornada = []
                     if _eh_transicao_rej_sil(t["condicao"]) and destino_hop and destino_hop != nome_real:
                         steps_jornada = _steps_jornada(self.spec_model, destino_hop, set(caminho_completo))
+                    if len(caminho_completo) == len(caminho):
+                        # Sem troca de estado: o CT precisa mostrar a ACAO que gera o SP.
+                        if _eh_transicao_rej_sil(t["condicao"]):
+                            passo_acao = _step_retentativa(self.spec_model, nome_real, t, sp_t)
+                        else:
+                            passo_acao = _step_transicao(self.spec_model, nome_real, t, sp_t, perfil)
+                        steps_jornada = [passo_acao] + steps_jornada
                     self._add_ct(
                         bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho_completo,
                         sp_final=sp_t, restricoes=restr, steps_extra=steps_jornada,

@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.3',
+    data: '13/10/2026',
+    itens: [
+      'CT que marca um SP sem trocar de estado (ex.: digitar * no PegaCPF) agora traz o step com a AÇÃO que gera a marcação — antes mostrava o SP sem dizer como provocá-lo.',
+    ],
+  },
+  {
     numero: '2.2',
     data: '13/10/2026',
     itens: [
