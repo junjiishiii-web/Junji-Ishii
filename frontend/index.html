@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=20261020" />
-  <script src="versao.js?v=2.10"></script>
+  <script src="versao.js?v=2.11"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -1585,6 +1585,7 @@
       _cartaoPlan('Objetivo do projeto', _lista(pl.objetivo.itens), pl.objetivo.fonte === 'EEP' ? 'Fonte: EEP' : 'Fonte: SPEC (inferido)'),
       pl.contexto.itens.length ? _cartaoPlan('Contexto e problema', _lista(pl.contexto.itens), 'Fonte: EEP') : '',
       _cartaoPlan('Regras de negócio', _lista(pl.regras.itens), pl.regras.fonte === 'EEP' ? 'Fonte: EEP' : 'Fonte: SPEC (versionamento)'),
+      (pl.escopo.eep || []).length ? _cartaoPlan('Escopo segundo o EEP', _lista(pl.escopo.eep), 'Fonte: EEP') : '',
       _cartaoPlan('Escopo — o que será testado', dentro, 'Fonte: SPEC'),
       (pl.escopo.fora || []).length ? _cartaoPlan('Fora do escopo / pontos de atenção', _lista(pl.escopo.fora), 'Fonte: SPEC/EEP') : '',
       _cartaoPlan('Estratégia de teste', _lista(pl.estrategia), 'Gerado pela ferramenta'),

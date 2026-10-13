@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.11',
+    data: '13/10/2026',
+    itens: [
+      'Planejamento: o objetivo agora vem da seção "OBJETIVO DO PROJETO" do EEP (também em modelos antigos com títulos numerados e em maiúsculas), sem misturar outras seções; escopo, justificativa e "fora do escopo" do EEP também são lidos.',
+    ],
+  },
+  {
     numero: '2.10',
     data: '13/10/2026',
     itens: [

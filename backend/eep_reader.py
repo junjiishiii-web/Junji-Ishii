@@ -26,8 +26,13 @@ _SECOES_EEP = [
     ("to_be", r"\d+\.\d+\.?\s*jornada da solu[cç][aã]o"),
     ("integracao", r"\d+\.\d+\.?\s*integra[cç][aã]o"),
     ("impactos", r"\d+\.\d+\.?\s*impactos e riscos"),
-    # EEPs simples (texto livre)
-    ("objetivo", r"objetivo(?: esperado)?\s*:?\s*$"),
+    # EEPs simples / modelos antigos ("1. OBJETIVO DO PROJETO:", "2. ESCOPO", "JUSTIFICATIVA"...)
+    ("objetivo", r"objetivos?(?:\s+(?:do\s+projeto|geral|esperado|principal))?\s*:?\s*$"),
+    ("escopo", r"escopo(?:\s+do\s+projeto)?\s*:?\s*$"),
+    ("fora_escopo", r"(?:fora\s+(?:do\s+)?escopo|n[aã]o\s+escopo)\s*:?\s*$"),
+    ("necessidade", r"(?:justificativa|motiva[cç][aã]o|contexto(?:\s+do\s+projeto)?|situa[cç][aã]o\s+atual)\s*:?\s*$"),
+    ("solucao", r"(?:descri[cç][aã]o\s+do\s+projeto|solu[cç][aã]o\s+proposta)\s*:?\s*$"),
+    ("regras", r"regras?\s*:?\s*$"),
     ("problemas", r"problemas observados"),
     ("validacao", r"como validar (?:o )?sucesso"),
     ("onde", r"onde ocorre"),
@@ -101,8 +106,10 @@ def _secoes_do_eep(texto):
         l = l_marcada.lstrip(_MARCA_ITEM)
         titulo = None
         if len(l) <= 110:
+            # o titulo pode vir numerado ("1.  OBJETIVO DO PROJETO:"): testa com e sem a numeracao
+            sem_numero = re.sub(r"^\d+(?:\.\d+)*\.?\s*", "", l)
             for k, rx in _SECOES_EEP:
-                if re.match(rx, l, re.IGNORECASE):
+                if re.match(rx, l, re.IGNORECASE) or (sem_numero != l and re.match(rx, sem_numero, re.IGNORECASE)):
                     titulo = k
                     break
         if titulo:

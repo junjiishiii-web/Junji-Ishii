@@ -93,9 +93,13 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
 
     # ── objetivo / contexto / regras (EEP, com plano B pela SPEC) ─────
     objetivo, fonte_obj = [], "EEP"
-    for k in ("solucao", "resultados", "objetivo"):
-        if secoes.get(k):
-            objetivo += secoes[k]
+    if secoes.get("objetivo"):
+        # Seção "OBJETIVO DO PROJETO" explícita no EEP: é o objetivo — sem misturar outras seções.
+        objetivo = list(secoes["objetivo"])
+    else:
+        for k in ("solucao", "resultados"):
+            if secoes.get(k):
+                objetivo += secoes[k]
     objetivo = [o for o in objetivo if not o.rstrip().endswith(":")]
     if not objetivo and secoes.get("validacao"):
         objetivo = secoes["validacao"]
@@ -142,6 +146,8 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
         fora.append(f"Estado '{e}' citado no versionamento mas sem aba correspondente na SPEC: não foi modelado.")
     for e in estados_sem_ct:
         fora.append(f"Estado '{e}' consta no versionamento mas não gerou CT (sem SP novo): confirmar manualmente.")
+    for r in secoes.get("fora_escopo", []):
+        fora.append("Fora do escopo (EEP): " + _truncar(r, 300))
     for r in secoes.get("restricoes", []):
         if not re.match(r"^\d+\.\d+", r):
             fora.append("Restrição do EEP: " + _truncar(r, 300))
@@ -288,7 +294,7 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
         "objetivo": {"fonte": fonte_obj, "itens": [_truncar(p, 700) for p in objetivo[:8]]},
         "contexto": {"fonte": "EEP", "itens": [_truncar(p, 600) for p in contexto[:10]]},
         "regras": {"fonte": fonte_regras, "itens": [_truncar(p, 600) for p in regras[:25]]},
-        "escopo": {"dentro": dentro, "fora": fora},
+        "escopo": {"dentro": dentro, "fora": fora, "eep": [_truncar(p, 600) for p in (secoes.get("escopo") or [])[:10]]},
         "estrategia": estrategia,
         "cobertura": cobertura,
         "massa": massa,
