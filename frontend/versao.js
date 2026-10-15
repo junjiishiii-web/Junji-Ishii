@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.13',
+    data: '15/10/2026',
+    itens: [
+      'Estados por onde o CT só PASSA (ex.: MenuPrincipal): usa o caminho mais fácil — poucas condicionais, ramo padrão ("Else" / "Código base" / "Demais segmentos"), chaves desativadas e sem segmentos/pilotos (ex.: NetGaming). O ponto de validação continua sendo o estado alterado.',
+      'Os steps passam a usar exatamente as transições escolhidas pelo caminho (antes um CT ANI Não podia mostrar um salto "ANI SIM > … Cliente NET Gaming" que não combina com a jornada).',
+      'ANI Não segue pela identificação (CPF/CNPJ/Contrato) e toca o prompt correspondente (ex.: DTMF_INI_AniNao); ANI Sim segue a própria jornada (sem identificação) e toca o prompt ANI Sim.',
+    ],
+  },
+  {
     numero: '2.12',
     data: '15/10/2026',
     itens: [

@@ -262,6 +262,29 @@ def _eh_entrada_cruzada(t, spec_model):
     return any(len(path) > len(pref) and path[: len(pref)] == pref for pref in _prefixos_cruzados(spec_model))
 
 
+_PADRAO_BASE_RE = re.compile(r"else|sen[aã]o|caso contr[aá]rio|c[oó]digo base|default|demais|massivo", re.IGNORECASE)
+_CHAVE_OFF_RE = re.compile(r"desativad|desligad|desabilitad|inativ|n[aã]o", re.IGNORECASE)
+_CHAVE_ON_RE = re.compile(r"ativad|habilitad|ligad", re.IGNORECASE)
+_ESPECIFICO_RE = re.compile(r"gaming|piloto|vip|ouro|rubi|black|premium|segmento|rgc|pj|empresa", re.IGNORECASE)
+
+
+def _pontuar_transicao(t):
+    """Quanto MAIOR, mais dificil/especifica a transicao. Usada para escolher o caminho mais FACIL
+    ate um estado por onde so se PASSA (o ponto de validacao fica adiante): poucas condicionais,
+    ramo padrao ("Else"/"Codigo base"/"Demais"), chaves desativadas, sem segmentos/pilotos."""
+    cond = t.get("condicao") or ""
+    path = t.get("path") or [cond]
+    pontos = len(path)
+    if _PADRAO_BASE_RE.search(cond):
+        pontos -= 3
+    if _CHAVE_OFF_RE.search(cond):
+        pontos -= 2
+    elif _CHAVE_ON_RE.search(cond):
+        pontos += 2
+    pontos += 3 * len(_ESPECIFICO_RE.findall(cond))
+    return pontos
+
+
 def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa"):
     """BFS com session tracking ate o estado de destino, evitando ciclos/hubs.
 
@@ -293,14 +316,17 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
     def _busca(perfil_ani, bloquear_hubs, filtro_entrada=None):
         restricoes_iniciais = {"ani": perfil_ani}
         restricoes_iniciais.update(extras_sem_ani)
-        fila = deque([([start_state], restricoes_iniciais)])
+        fila = deque([([start_state], restricoes_iniciais, [])])
         visitados = {start_state}
         while fila:
-            caminho, restricoes = fila.popleft()
+            caminho, restricoes, hops = fila.popleft()
             atual = caminho[-1]
             if atual == destino_nome:
+                # guarda as transicoes escolhidas em cada salto: os steps do CT usam EXATAMENTE elas
+                spec_model.setdefault("_hops_cache", {})[(perfil_ani, tuple(caminho))] = hops
                 return caminho
             transicoes = estados.get(atual, {}).get("transicoes", [])
+            melhores, ordem = {}, []
             for t in transicoes:
                 if atual == start_state and filtro_entrada:
                     # primeira transicao: entrada nativa da URA x hand-off vindo de outra URA
@@ -314,10 +340,18 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
                 novas = extrair_restricoes_sessao(t["condicao"])
                 if verificar_conflito_sessao(restricoes, novas):
                     continue
+                pontos = _pontuar_transicao(t)
+                if real_dest not in melhores:
+                    ordem.append(real_dest)
+                    melhores[real_dest] = (pontos, t, novas)
+                elif pontos < melhores[real_dest][0]:
+                    melhores[real_dest] = (pontos, t, novas)
+            for real_dest in ordem:
+                _pontos, t, novas = melhores[real_dest]
                 atualizadas = dict(restricoes)
                 atualizadas.update(novas)
                 visitados.add(real_dest)
-                fila.append((caminho + [real_dest], atualizadas))
+                fila.append((caminho + [real_dest], atualizadas, hops + [t]))
         return []
 
     perfil_alternativo = "anisim" if perfil_entrada == "aninao" else "aninao"
@@ -593,6 +627,14 @@ def _acao_para_step(idx, condicao, perfil):
 
 def montar_steps(spec_model, caminho, perfil, transicao_final=None):
     steps = []
+    # Saltos escolhidos pelo BFS (o mais facil e compativel com a sessao): maior prefixo do caminho em cache.
+    cache = spec_model.get("_hops_cache") or {}
+    hops_pref, tam_pref = [], 0
+    for k in range(len(caminho), 1, -1):
+        achado = cache.get((perfil, tuple(caminho[:k])))
+        if achado is not None:
+            hops_pref, tam_pref = achado, k
+            break
     for j, estado_nome in enumerate(caminho):
         prox_prompt_target = ""
         condicao = ""
@@ -602,10 +644,11 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
         else:
             anterior = caminho[j - 1]
             transicoes = spec_model["estados"].get(anterior, {}).get("transicoes", [])
-            match_t = next(
-                (t for t in transicoes if resolver_destino(spec_model["mapa_rotas"], t["destino"]) == estado_nome),
-                None,
-            )
+            if j < tam_pref and j - 1 < len(hops_pref):
+                match_t = hops_pref[j - 1]
+            else:
+                candidatas = [t for t in transicoes if resolver_destino(spec_model["mapa_rotas"], t["destino"]) == estado_nome]
+                match_t = min(candidatas, key=_pontuar_transicao) if candidatas else None
             # O ultimo hop de um CT por transicao deve usar ESSA transicao
             # (nao a primeira que por acaso aponte pro mesmo destino).
             if transicao_final is not None and j == len(caminho) - 1:
