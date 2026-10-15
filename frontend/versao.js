@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.15',
+    data: '15/10/2026',
+    itens: [
+      'Correção: nomes de chave e frases como "BasesConsultaMotorTecnico"/"visita técnica" não são mais lidos como a opção de menu "técnico" — isso bloqueava o caminho até estados como MenuPrincipalSemCompras e deixava SPs (ex.: 2470) sem CT.',
+      'Prompts com SP novo (ex.: spp=2476 do INI_MP): o step mostra o SP da transição E o SP do prompt, e o SP novo tocado por qualquer step conta como coberto pelo CT.',
+    ],
+  },
+  {
     numero: '2.14',
     data: '15/10/2026',
     itens: [

@@ -117,6 +117,10 @@ def montar_gherkin(prefixo, meio, sufixo):
 def extrair_restricoes_sessao(condicao_texto):
     """Mapeia termos de condicao para variaveis de sessao (evita contradicoes)."""
     txt = str(condicao_texto).lower()
+    # Nomes de chave ("BasesConsultaMotorTecnico") e frases como "visita tecnica"/"motor tecnico" nao dizem
+    # qual opcao de menu o cliente escolheu — sem isso a condicao parecia "MPL tecnico" e bloqueava o caminho.
+    txt = re.sub(r"chaves?\s+[a-z0-9_]+", " ", txt)
+    txt = re.sub(r"(?:visita|motor|suporte|atendimento|diagn[oó]stico)\s+t[eé]cnic[oa]", " ", txt)
     res = {}
 
     if "anisim" in txt or "ani sim" in txt:
@@ -561,8 +565,10 @@ def _steps_jornada(spec_model, estado_atual, visitados, limite=14):
         prompt, _dono = next(_candidatos_prompt_transicao(spec_model, atual, t), (None, None))
         prompt_id = prompt["id"] if prompt else "—"
         prompt_texto = (_texto_exibicao_prompt(spec_model, destino, prompt, t["condicao"]) or "—") if prompt else "—"
-        if sp_t:
-            resultado = f"{sp_t[0]}={sp_t[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
+        sp_prompt = _sp_prompt_novo(spec_model, prompt, sp_t)
+        marcas = ", ".join(f"{x[0]}={x[1]}" for x in (sp_t, sp_prompt) if x)
+        if marcas:
+            resultado = marcas + (f" — {prompt_texto}" if prompt_texto != "—" else "")
         else:
             resultado = prompt_texto
         steps.append(
@@ -573,12 +579,24 @@ def _steps_jornada(spec_model, estado_atual, visitados, limite=14):
                 "prompt_id": prompt_id,
                 "prompt_texto": prompt_texto,
                 "sp": sp_t,
+                "sp_prompt": sp_prompt,
                 "resultado": resultado,
             }
         )
         visitados.add(destino)
         atual = destino
     return steps
+
+
+def _sp_prompt_novo(spec_model, prompt, sp_transicao):
+    """SP do PROMPT (ex.: spp=2476 do INI_MP) quando e uma marcacao NOVA do projeto e e diferente do SP
+    da transicao: o prompt tambem marca quando toca, e o CT precisa conferir os dois."""
+    if not prompt or not prompt.get("sp"):
+        return None
+    sp = prompt["sp"]
+    if sp == sp_transicao or sp[1] not in (spec_model.get("_sps_novos") or ()):
+        return None
+    return sp
 
 
 def _step_retentativa(spec_model, estado_nome, t, sp_t):
@@ -594,8 +612,10 @@ def _step_retentativa(spec_model, estado_nome, t, sp_t):
 
     destino_real = resolver_destino(spec_model["mapa_rotas"], t.get("destino"))
     destino_txt = f"segue para {destino_real}" if destino_real and destino_real != estado_nome else "permanece no estado"
-    if sp_t:
-        resultado = f"{sp_t[0]}={sp_t[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
+    sp_prompt = _sp_prompt_novo(spec_model, prompt, sp_t)
+    marcas = ", ".join(f"{x[0]}={x[1]}" for x in (sp_t, sp_prompt) if x)
+    if marcas:
+        resultado = marcas + (f" — {prompt_texto}" if prompt_texto != "—" else "")
     else:
         resultado = prompt_texto
     return {
@@ -605,6 +625,7 @@ def _step_retentativa(spec_model, estado_nome, t, sp_t):
         "prompt_id": prompt_id,
         "prompt_texto": prompt_texto,
         "sp": sp_t,
+        "sp_prompt": sp_prompt,
         "resultado": f"{resultado} | {destino_txt}",
     }
 
@@ -728,8 +749,10 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
         prompt_id = prompt["id"] if prompt else "—"
         prompt_texto = (_texto_exibicao_prompt(spec_model, estado_nome, prompt, condicao) or "—") if prompt else "—"
 
-        if sp_hop:
-            resultado_hop = f"{sp_hop[0]}={sp_hop[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
+        sp_prompt = _sp_prompt_novo(spec_model, prompt, sp_hop)
+        marcas = ", ".join(f"{x[0]}={x[1]}" for x in (sp_hop, sp_prompt) if x)
+        if marcas:
+            resultado_hop = marcas + (f" — {prompt_texto}" if prompt_texto != "—" else "")
         else:
             resultado_hop = prompt_texto
 
@@ -741,6 +764,7 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
                 "prompt_id": prompt_id,
                 "prompt_texto": prompt_texto,
                 "sp": sp_hop,
+                "sp_prompt": sp_prompt,
                 "resultado": resultado_hop,
             }
         )
@@ -756,7 +780,12 @@ def _resultado_final_texto(sp_final, destino_final):
 
 def _formatar_resultado_esperado(steps, sp_final, sp_pendente):
     linhas = ["LOG", "CDR", "ScriptPoint"]
-    marcados = [s["sp"] for s in steps if s.get("sp")]
+    marcados = []
+    for s in steps:
+        if s.get("sp"):
+            marcados.append(s["sp"])
+        if s.get("sp_prompt"):
+            marcados.append(s["sp_prompt"])
     if sp_final:
         marcados.append(sp_final)
     vistos = set()
@@ -791,6 +820,7 @@ class GeradorCT:
         # vier vazia (projeto greenfield, sem SP publicado ainda), nao ha
         # nada para comparar e todas as transicoes contam como candidatas.
         self._sps_novos = {sp["codigo"] for sp in spec_model.get("versionamento_bi", []) if sp.get("codigo")}
+        spec_model["_sps_novos"] = self._sps_novos  # montar_steps mostra o SP do PROMPT quando ele e novo
         self._transicoes_ignoradas_sp_antigo = 0
         self._transicoes_ignoradas_sem_sp = 0
         self._transicoes_fora_da_alteracao = 0
@@ -885,6 +915,12 @@ class GeradorCT:
             for sp_extra in sps_todos:
                 if sp_extra != sp_final:
                     self._registrar_sp(sp_extra, ct_id)
+            # SP NOVO que o CT toca pelo caminho/jornada tambem e conferido por ele (ex.: spp do prompt INI_MP)
+            for passo in steps:
+                for chave_sp in ("sp", "sp_prompt"):
+                    sp_passo = passo.get(chave_sp)
+                    if sp_passo and sp_passo[1] in self._sps_novos and sp_passo[1] not in self._sp_bi_cobertura:
+                        self._registrar_sp(sp_passo, ct_id)
 
         tags ={"linha": "Celular/Fixo", "afterhours": "AfterHours", "mpl": "MPL", "protocolo": "Protocolo", "adimplencia": "Adimplência"}
         pre_req_partes = [f"ANI {'Não' if perfil == 'aninao' else 'Sim'}"]
