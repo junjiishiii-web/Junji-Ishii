@@ -464,11 +464,69 @@ def _rotulo_tipo_retentativa(condicao):
     return "Digitar opção inválida (REJ)"
 
 
+_FAMILIA_PROMPT_RE = re.compile(r"(?<![A-Za-z])(INI|REJ\d?|SIL\d?|RPT\d?)(?![A-Za-z])")
+
+
+def _texto_exibicao_prompt(spec_model, estado_nome, prompt, condicao=""):
+    """Prompt que o cliente OUVE. Quando o prompt do estado e so um trecho de uma montagem por concat
+    (ex.: "INI" = "Ok, vamo la! Qual dessas opcoes aqui te ajuda?" + opcoes TEC/FIN/CMP...), usa o
+    texto completo do exemplo da SPEC ("EXEMPLO 1: DE INI SEM CLARO GAMING")."""
+    if not prompt:
+        return None
+    exemplos = (spec_model["estados"].get(estado_nome) or {}).get("concat_exemplos") or []
+    if not exemplos:
+        return prompt.get("texto")
+    familias = _FAMILIA_PROMPT_RE.findall(prompt["id"])
+    if not familias:
+        return prompt.get("texto")
+    familia = familias[-1].upper()
+    com_gaming = bool(re.search(r"gaming", condicao or "", re.IGNORECASE)) and not re.search(r"desativad", condicao or "", re.IGNORECASE)
+    candidatos = [e for e in exemplos if re.search(rf"\bDE\s+{re.escape(familia)}\b", e["titulo"], re.IGNORECASE)]
+    if not candidatos:
+        return prompt.get("texto")
+    def _contexto_ok(e):
+        t = e["titulo"].upper()
+        if "COM CLARO GAMING" in t:
+            return com_gaming
+        if "SEM CLARO GAMING" in t:
+            return not com_gaming
+        return True
+    escolhido = next((e for e in candidatos if _contexto_ok(e)), candidatos[0])
+    return escolhido["texto"]
+
+
 _INTERATIVO_RE = re.compile(r"\bdtmf\b|digitou|tecla", re.IGNORECASE)
 _ELSE_RE = re.compile(r"\belse\b|caso contr[aá]rio", re.IGNORECASE)
 
 
-def _steps_jornada(spec_model, estado_atual, visitados, limite=6):
+_TERMINAL_RE = re.compile(r"^(?:transfer|_end_)", re.IGNORECASE)
+
+
+def _distancia_terminal(spec_model, inicio, visitados, limite=10):
+    """Saltos automaticos (sem digitar nada) de `inicio` ate uma transferencia/fim; None se nao ha."""
+    from collections import deque
+
+    mapa = spec_model["mapa_rotas"]
+    fila = deque([(inicio, 0)])
+    vistos = set(visitados) | {inicio}
+    while fila:
+        estado, d = fila.popleft()
+        if _TERMINAL_RE.match(estado):
+            return d
+        if d >= limite:
+            continue
+        transicoes = (spec_model["estados"].get(estado) or {}).get("transicoes", [])
+        if any(_eh_transicao_rej_sil(t["condicao"]) or _INTERATIVO_RE.search(t["condicao"]) for t in transicoes):
+            continue
+        for t in transicoes:
+            dest = resolver_destino(mapa, t["destino"])
+            if dest and dest not in vistos:
+                vistos.add(dest)
+                fila.append((dest, d + 1))
+    return None
+
+
+def _steps_jornada(spec_model, estado_atual, visitados, limite=14):
     """Continua a jornada conforme a SPEC a partir do estado em que a
     chamada acabou de cair (ex.: depois da ultima tentativa de REJ/SIL/
     INV/INC que sai pra outro estado): segue a saida automatica de cada
@@ -491,11 +549,18 @@ def _steps_jornada(spec_model, estado_atual, visitados, limite=6):
                 candidatos.append((t, destino))
         if not candidatos:
             break
-        t, destino = next((c for c in candidatos if _ELSE_RE.search(c[0]["condicao"])), candidatos[0])
+        # prefere o ramo que chega MAIS RAPIDO a uma transferencia/fim (jornada ate o desfecho);
+        # empate: o mais facil (menos condicionais), depois o "Else".
+        pontuados = []
+        for idx_c, (tc, dc) in enumerate(candidatos):
+            dist = _distancia_terminal(spec_model, dc, visitados | {atual})
+            pontuados.append(((dist if dist is not None else 99), _pontuar_transicao(tc), 0 if _ELSE_RE.search(tc["condicao"]) else 1, idx_c))
+        melhor = min(pontuados)
+        t, destino = candidatos[melhor[3]]
         sp_t = _sp_efetivo_transicao(spec_model, atual, t)
         prompt, _dono = next(_candidatos_prompt_transicao(spec_model, atual, t), (None, None))
         prompt_id = prompt["id"] if prompt else "—"
-        prompt_texto = prompt["texto"] if prompt else "—"
+        prompt_texto = (_texto_exibicao_prompt(spec_model, destino, prompt, t["condicao"]) or "—") if prompt else "—"
         if sp_t:
             resultado = f"{sp_t[0]}={sp_t[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
         else:
@@ -522,7 +587,7 @@ def _step_retentativa(spec_model, estado_nome, t, sp_t):
     com seu texto e SP, e pra onde a chamada segue."""
     prompt, dono = next(_candidatos_prompt_transicao(spec_model, estado_nome, t), (None, None))
     prompt_id = prompt["id"] if prompt else "—"
-    prompt_texto = prompt["texto"] if prompt else "—"
+    prompt_texto = (_texto_exibicao_prompt(spec_model, dono or estado_nome, prompt, "") or "—") if prompt else "—"
     path = t.get("path") or [t["condicao"]]
     folha = path[-1]
     acao = f"{_rotulo_tipo_retentativa(t['condicao'])} — {folha}"
@@ -661,7 +726,7 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
         state_data = spec_model["estados"].get(estado_nome, {})
         prompt = _match_prompt(state_data, prox_prompt_target)
         prompt_id = prompt["id"] if prompt else "—"
-        prompt_texto = prompt["texto"] if prompt else "—"
+        prompt_texto = (_texto_exibicao_prompt(spec_model, estado_nome, prompt, condicao) or "—") if prompt else "—"
 
         if sp_hop:
             resultado_hop = f"{sp_hop[0]}={sp_hop[1]}" + (f" — {prompt_texto}" if prompt_texto != "—" else "")
@@ -754,7 +819,7 @@ class GeradorCT:
         tipo, codigo = sp
         self._sp_bi_cobertura.setdefault(codigo, []).append(ct_id)
 
-    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None):
+    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None, sp_legado=False):
         if not caminho:
             self.revisao_necessaria.append(
                 {
@@ -775,7 +840,7 @@ class GeradorCT:
         sps_todos = [sp for sp in (sps_todos or []) if sp]
         if sps_todos and not sp_final:
             sp_final = sps_todos[0]
-        sp_pendente = sp_pendente or (sp_final is None and self.tipo_a and not regressivo)
+        sp_pendente = sp_pendente or (sp_final is None and self.tipo_a and not (regressivo or sp_legado))
 
         resultado_txt = _formatar_resultado_esperado(steps, sp_final, sp_pendente)
         steps.append(
@@ -808,14 +873,14 @@ class GeradorCT:
         ct_id = self._novo_id(sufixo)
         # CT regressivo confere SP LEGADO (ja em producao): fica numa lista PROPRIA, separada das
         # marcacoes novas do projeto (senao SPs antigos apareceriam como marcacao do projeto).
-        if regressivo:
+        if regressivo or sp_legado:
             for sp_reg in ([sp_final] if sp_final else []) + [sp for sp in sps_todos if sp != sp_final]:
                 reg = self._sp_regressao.setdefault(sp_reg[1], {"codigo": sp_reg[1], "tipo": sp_reg[0], "cts": [], "estados": []})
                 if ct_id not in reg["cts"]:
                     reg["cts"].append(ct_id)
                 if estado not in reg["estados"]:
                     reg["estados"].append(estado)
-        if not regressivo:
+        if not (regressivo or sp_legado):
             self._registrar_sp(sp_final, ct_id)
             for sp_extra in sps_todos:
                 if sp_extra != sp_final:
@@ -1033,8 +1098,25 @@ class GeradorCT:
             sem_sp_local = 0
             sem_caminho_local = 0
             fora_alt_local = 0
+            # Condicionais NOVAS: o ramo OPOSTO (irmao no mesmo grupo — ex.: "chave ATIVADA E nao tem
+            # visita" x "chave DESATIVADA OU ja tem visita") precisa ser validado junto, com o SP legado.
+            filhos_por_pai = {}
+            for t_cont in transicoes:
+                c_path = t_cont.get("path") or []
+                if len(c_path) > 1:
+                    filhos_por_pai.setdefault(tuple(c_path[:-1]), set()).add(c_path[-1])
+            pais_novos = set()
+            for t_pai in transicoes:
+                sp_pai = _sp_efetivo_transicao(self.spec_model, nome_real, t_pai)
+                caminho_pai = t_pai.get("path") or []
+                # so decisoes de poucos ramos (condicional verdadeiro/falso), nao menus com muitas opcoes
+                if (self._sps_novos and sp_pai and sp_pai[1] in self._sps_novos and len(caminho_pai) > 1
+                        and len(filhos_por_pai.get(tuple(caminho_pai[:-1]), ())) <= 3):
+                    pais_novos.add(tuple(caminho_pai[:-1]))
+            irmaos_por_pai = {}
+
             def _avaliar(t):
-                """(sp_efetivo, status) — status: 'ok' | 'antigo' | 'sem_sp'."""
+                """(sp_efetivo, status) — status: 'ok' | 'irmao' | 'antigo' | 'sem_sp'."""
                 sp_t = _sp_efetivo_transicao(self.spec_model, nome_real, t)
                 # Num estado NOVO, os ramos de REJ/SIL (usuario digitou algo
                 # diferente / ficou em silencio) devem ser 100% mapeados,
@@ -1048,9 +1130,16 @@ class GeradorCT:
                     if usar_dicas and not _transicao_casa_dicas(t, dicas_estado):
                         return sp_t, "fora_alteracao"
                     return sp_t, "ok"
+                caminho_t = tuple(t.get("path") or [])
+                eh_irmao = len(caminho_t) > 1 and caminho_t[:-1] in pais_novos and not _eh_transicao_rej_sil(t["condicao"])
+                if eh_irmao and irmaos_por_pai.get(caminho_t[:-1], 0) >= 2:
+                    eh_irmao = False
                 if sp_t and sp_t[1] not in self._sps_novos:
-                    # SP ja existia antes desta versao (nao esta na lista de
-                    # novos da VersionamentoBI) — fora do escopo do teste.
+                    # SP ja existia antes desta versao (nao esta na lista de novos da VersionamentoBI):
+                    # fora do escopo — salvo se e o ramo oposto de uma condicional nova.
+                    if eh_irmao:
+                        irmaos_por_pai[caminho_t[:-1]] = irmaos_por_pai.get(caminho_t[:-1], 0) + 1
+                        return sp_t, "irmao"
                     return sp_t, "antigo"
                 if not sp_t:
                     # Sem NENHUMA marcacao de SP, com a BI ja preenchida:
@@ -1058,6 +1147,9 @@ class GeradorCT:
                     # so um ramo antigo do menu. Sem esse filtro, um estado
                     # grande com dezenas de ramos legados gera uma "SP
                     # PENDENTE" pra CADA UM (violando L3/L4).
+                    if eh_irmao:
+                        irmaos_por_pai[caminho_t[:-1]] = irmaos_por_pai.get(caminho_t[:-1], 0) + 1
+                        return sp_t, "irmao"
                     return sp_t, "sem_sp"
                 return sp_t, "ok"
 
@@ -1096,9 +1188,10 @@ class GeradorCT:
                 if not eh_escada:
                     t = unidade[0]
                     sp_t, status = _avaliar(t)
-                    if status != "ok":
+                    if status not in ("ok", "irmao"):
                         _contar_ignorada(status)
                         continue
+                    eh_irmao = status == "irmao"
 
                     assinatura = normalizar_chave(t["condicao"])
                     if assinatura in vistos_condicao:
@@ -1120,8 +1213,11 @@ class GeradorCT:
                     destino_hop = resolver_destino(self.spec_model["mapa_rotas"], t["destino"])
                     caminho_completo = caminho + ([destino_hop] if destino_hop and destino_hop != caminho[-1] else [])
                     alteracao_txt = f"{est['alteracao']} — condição: {t['condicao']}" if est.get("alteracao") else t["condicao"]
+                    if eh_irmao:
+                        alteracao_txt = f"Ramo oposto da condicional nova — condição: {t['condicao']}"
                     steps_jornada = []
-                    if _eh_transicao_rej_sil(t["condicao"]) and destino_hop and destino_hop != nome_real:
+                    if destino_hop and destino_hop != nome_real:
+                        # a jornada segue conforme a SPEC ate a transferencia/fim (nao para no SP de passagem)
                         steps_jornada = _steps_jornada(self.spec_model, destino_hop, set(caminho_completo))
                     if len(caminho_completo) == len(caminho):
                         # Sem troca de estado: o CT precisa mostrar a ACAO que gera o SP.
@@ -1134,6 +1230,7 @@ class GeradorCT:
                         bloco_idx, bloco_nome, nome_real, alteracao_txt, perfil, caminho_completo,
                         sp_final=sp_t, restricoes=restr, steps_extra=steps_jornada,
                         transicao_final=t if len(caminho_completo) > len(caminho) else None,
+                        sp_legado=eh_irmao,
                     )
                     continue
 
@@ -1759,6 +1856,15 @@ class GeradorCT:
         self._blocos.append({"numero": bloco_idx, "nome": bloco_nome, "cor": REGRESSIVO_COR, "titulo": f"{bloco_nome} — Preservação do fluxo legado"})
 
         candidatos = [c for c in self.casos_teste if c.get("sp_final") and not c["regressivo"]]
+        if candidatos:
+            c = candidatos[0]
+            m = re.search(r"chave\s+([A-Za-zÀ-ú0-9_]+)", c["alteracao_relatada"], re.IGNORECASE)
+            chave = m.group(1) if m else "de elegibilidade"
+            if m and any(
+                "ramo oposto" in (x.get("alteracao_relatada") or "").lower() and chave.lower() in (x.get("alteracao_relatada") or "").lower()
+                for x in self.casos_teste
+            ):
+                candidatos = []  # o ramo oposto (chave desativada) ja foi validado de verdade nos CTs funcionais
         if candidatos:
             c = candidatos[0]
             m = re.search(r"chave\s+([A-Za-zÀ-ú0-9_]+)", c["alteracao_relatada"], re.IGNORECASE)

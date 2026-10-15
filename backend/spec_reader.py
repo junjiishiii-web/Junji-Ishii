@@ -242,7 +242,11 @@ def parse_state_sheet(sheet):
             if eh_secao:
                 # "EXEMPLOS DE CONCAT PARA CHAVE ..." abre uma secao de exemplos; outro titulo a encerra.
                 secao_concat = re.sub(r"\s+", " ", prompt_id) if prompt_id.upper().startswith("EXEMPLOS") else ""
-            if prompt_id and texto and "exemplo" in prompt_id.lower() and not eh_secao:
+            titulo_exemplo = prompt_id if "exemplo" in prompt_id.lower() else next(
+                (re.sub(r"\s+", " ", str(v)).strip() for v in row if isinstance(v, str) and v.strip().lower().startswith("exemplo")),
+                "",
+            )
+            if titulo_exemplo and texto and not eh_secao:
                 # Estados dinamicos (menu montado por concat) descrevem cada variacao como "Exemplo ...".
                 concat_txt = next(
                     (re.sub(r"\s+", " ", str(v)).strip() for v in row if isinstance(v, str) and v.strip().lower().startswith("concat")),
@@ -251,7 +255,7 @@ def parse_state_sheet(sheet):
                 dados["concat_exemplos"].append(
                     {
                         "secao": secao_concat,
-                        "titulo": re.sub(r"\s+", " ", prompt_id).strip(),
+                        "titulo": re.sub(r"\s+", " ", titulo_exemplo).strip(),
                         "texto": texto,
                         "concat": concat_txt,
                         "sp": classificar_sp(marcacao) if re.search(r"\d{3,}", marcacao or "") else None,

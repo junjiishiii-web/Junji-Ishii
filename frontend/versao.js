@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.14',
+    data: '15/10/2026',
+    itens: [
+      'Jornada até o desfecho: todo CT de transição que muda de estado passa a seguir a SPEC até a transferência/fim (ex.: DTMF 9 → SwitchAutoDiagnostico (spt=2465) → TransferMaisProtocolo, com o prompt "Certo_A"), escolhendo o ramo que chega mais rápido ao desfecho; antes o CT parava no SP de passagem.',
+      'Condicionais novas: o ramo OPOSTO (irmão no mesmo grupo, ex.: "chave ATIVADA E não tem visita" x "chave DESATIVADA OU já tem visita") passa a ser validado junto, com o SP legado (fica na seção de SPs existentes, não nas marcações novas). Só para decisões de poucos ramos, no máximo 2 por grupo.',
+      'Prompt completo: quando o prompt do estado é só um trecho de uma montagem por concat (ex.: MenuPrincipal_CM "INI"), o step mostra o texto completo do exemplo da SPEC ("EXEMPLO 1: DE INI SEM CLARO GAMING"), com as opções do menu; REJ/SIL/RPT idem.',
+    ],
+  },
+  {
     numero: '2.13',
     data: '15/10/2026',
     itens: [
