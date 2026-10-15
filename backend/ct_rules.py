@@ -228,7 +228,41 @@ def _detectar_start_state(spec_model):
     return resolvido
 
 
-def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None):
+_VEIO_DO_ESTADO_RE = re.compile(r"(?:veio|vindo)\s+d[oae]\s+(?:estado|ura)", re.IGNORECASE)
+_URA_EXTERNA_RE = re.compile(r"ura\s+identificadora", re.IGNORECASE)
+_CACHE_PREFIXOS_CRUZADOS = {}
+
+
+def _prefixos_cruzados(spec_model):
+    """Prefixos (grupos) do _Start_ que sao hand-off de outra URA: o grupo que tem condicoes
+    "Veio do estado X" (ex.: "Entrada normal > Atendimento Televendas > Veio do estado ...")."""
+    chave = id(spec_model)
+    if chave not in _CACHE_PREFIXOS_CRUZADOS:
+        start = _detectar_start_state(spec_model)
+        prefixos = set()
+        for t in (spec_model["estados"].get(start, {}).get("transicoes", []) if start else []):
+            if _VEIO_DO_ESTADO_RE.search(t.get("condicao") or ""):
+                path = tuple(t.get("path") or [])
+                if len(path) > 1:
+                    prefixos.add(path[:-1])
+        _CACHE_PREFIXOS_CRUZADOS.clear()
+        _CACHE_PREFIXOS_CRUZADOS[chave] = prefixos
+    return _CACHE_PREFIXOS_CRUZADOS[chave]
+
+
+def _eh_entrada_cruzada(t, spec_model):
+    """Transicao do _Start_ que e um HAND-OFF vindo de OUTRA URA (ex.: "Atendimento Televendas >
+    Veio do estado MenuRentabilizacao" numa SPEC da CRN), e nao a entrada nativa dessa URA
+    (ex.: "Entrada normal > Entrou pelo DNIS 0800 ..."). Vale tambem para as irmas do mesmo grupo
+    (o "Else" do grupo "Atendimento Televendas") e para "URA IDENTIFICADORA"."""
+    cond = t.get("condicao") or ""
+    if _VEIO_DO_ESTADO_RE.search(cond) or _URA_EXTERNA_RE.search(cond):
+        return True
+    path = tuple(t.get("path") or [])
+    return any(len(path) > len(pref) and path[: len(pref)] == pref for pref in _prefixos_cruzados(spec_model))
+
+
+def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa"):
     """BFS com session tracking ate o estado de destino, evitando ciclos/hubs.
 
     Retorna (caminho, perfil_efetivo). Em specs reais grandes, o UNICO
@@ -256,7 +290,7 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
     extras_sem_ani = dict(restricoes_extra or {})
     extras_sem_ani.pop("ani", None)
 
-    def _busca(perfil_ani, bloquear_hubs):
+    def _busca(perfil_ani, bloquear_hubs, filtro_entrada=None):
         restricoes_iniciais = {"ani": perfil_ani}
         restricoes_iniciais.update(extras_sem_ani)
         fila = deque([([start_state], restricoes_iniciais)])
@@ -268,6 +302,10 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
                 return caminho
             transicoes = estados.get(atual, {}).get("transicoes", [])
             for t in transicoes:
+                if atual == start_state and filtro_entrada:
+                    # primeira transicao: entrada nativa da URA x hand-off vindo de outra URA
+                    if (filtro_entrada == "nativa") == _eh_entrada_cruzada(t, spec_model):
+                        continue
                 real_dest = resolver_destino(mapa_rotas, t["destino"])
                 if not real_dest or real_dest in visitados:
                     continue
@@ -283,11 +321,15 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
         return []
 
     perfil_alternativo = "anisim" if perfil_entrada == "aninao" else "aninao"
-    for perfil_ani in (perfil_entrada, perfil_alternativo):
-        for bloquear_hubs in (True, False):
-            caminho = _busca(perfil_ani, bloquear_hubs)
-            if caminho:
-                return caminho, perfil_ani
+    # Por padrao prefere a entrada NATIVA da URA; so cai num hand-off de outra URA se nao houver outra
+    # saida. modo "cruzada" forca o caminho que entra por outra URA (regressao de entrada alternativa).
+    filtros = ("nativa", None) if modo_entrada == "nativa" else ("cruzada",)
+    for filtro in filtros:
+        for perfil_ani in (perfil_entrada, perfil_alternativo):
+            for bloquear_hubs in (True, False):
+                caminho = _busca(perfil_ani, bloquear_hubs, filtro)
+                if caminho:
+                    return caminho, perfil_ani
     return [], perfil_entrada
 
 
@@ -1583,6 +1625,38 @@ class GeradorCT:
                     )
                     if caso:
                         resumo["ANI Sim"] += 1
+
+        # 3b) entrada vinda de OUTRA URA (hand-off): o estado alterado tambem precisa funcionar
+        total_cruzadas = 0
+        hops_cruzados = set()
+        start = _detectar_start_state(self.spec_model)
+        for nome in alterados:
+            if total_cruzadas >= 3 or not start:
+                break
+            cam_nat, _perf = bfs_caminho_entrada(self.spec_model, nome, perfil_entrada="aninao")
+            cam_cru, perfil_ef = bfs_caminho_entrada(self.spec_model, nome, perfil_entrada="aninao", modo_entrada="cruzada")
+            if not cam_cru or len(cam_cru) < 2 or (len(cam_nat) > 1 and cam_nat[1] == cam_cru[1]):
+                continue
+            hop = next(
+                (t for t in estados_spec[start].get("transicoes", [])
+                 if resolver_destino(mapa, t.get("destino")) == cam_cru[1] and _eh_entrada_cruzada(t, self.spec_model)),
+                None,
+            )
+            origem_txt = (hop["condicao"][-90:] if hop else "outra URA")
+            if origem_txt in hops_cruzados:
+                continue  # um CT por hand-off distinto basta
+            hops_cruzados.add(origem_txt)
+            gherkin = (
+                f"Dado cliente {_perfil_txt(perfil_ef)} vindo de outra URA ({origem_txt}), Quando chegar ao estado {nome}, "
+                "Então o estado deve se comportar como na entrada nativa."
+            )
+            caso = self._add_ct(
+                bloco_idx, bloco_nome, nome, f"Regressão — entrada vinda de outra URA ({origem_txt})", perfil_ef,
+                cam_cru, regressivo=True, gherkin_override=gherkin,
+            )
+            if caso:
+                total_cruzadas += 1
+                resumo["entradas de outra URA"] = resumo.get("entradas de outra URA", 0) + 1
 
         # 4) chaves desativadas citadas nas condicoes dos estados alterados
         for nome in alterados:

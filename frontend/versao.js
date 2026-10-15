@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.12',
+    data: '15/10/2026',
+    itens: [
+      'Caminho de entrada: os CTs passam a seguir a entrada NATIVA da URA (ex.: CRN "Entrada normal > Entrou pelo DNIS 0800 → Saudacao → …") em vez de um hand-off vindo de outra URA (ex.: "Atendimento Televendas > Veio do estado MenuRentabilizacao"), que antes aparecia só por ser o caminho mais curto.',
+      'Regressão: um CT por hand-off de outra URA confirma que o estado alterado também funciona quando a chamada vem de outra URA.',
+    ],
+  },
+  {
     numero: '2.11',
     data: '13/10/2026',
     itens: [
