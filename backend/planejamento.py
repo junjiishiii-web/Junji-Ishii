@@ -50,6 +50,12 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
     estados_alterados = versionamento.get("estados_alterados") or []
     ivr = ivr_code or (spec_model or {}).get("ivr_resolvido") or versionamento.get("ivr") or "—"
     lacunas = []
+    sem_eep = not secoes and not campos and str(eep.get("nome", "")).lower().startswith("projeto sem nome")
+
+    def _lac(mensagem):
+        # sem EEP, uma unica lacuna explica tudo (nao uma por seção ausente)
+        if not sem_eep:
+            lacunas.append(mensagem)
 
     # ── números de apoio ────────────────────────────────────────────
     total = len(casos)
@@ -67,6 +73,9 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
     ignorados_sem_sp = sum(_numero(r.get("detalhe"), r"(\d+) transi") for r in revisao if r.get("tipo") == "info_transicoes_sem_sp_ignoradas")
     estados_nao_achados = [r.get("estado") for r in revisao if r.get("tipo") == "estado_nao_encontrado" and r.get("estado")]
     estados_sem_ct = [r.get("estado") for r in revisao if r.get("tipo") == "estado_sem_sp_novo" and r.get("estado")]
+
+    if sem_eep:
+        lacunas.append("EEP não informado (incidente/correção): objetivo, regras e escopo foram inferidos do versionamento da SPEC; chaves sistêmicas e VDNs não foram lidos.")
 
     # ── identificação ───────────────────────────────────────────────
     nome = eep.get("nome")
@@ -105,7 +114,7 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
         objetivo = secoes["validacao"]
     if not objetivo:
         fonte_obj = "SPEC"
-        lacunas.append("Objetivo do projeto: o EEP não traz uma seção de objetivo/solução reconhecível — o texto abaixo foi inferido do versionamento da SPEC.")
+        _lac("Objetivo do projeto: o EEP não traz uma seção de objetivo/solução reconhecível — o texto abaixo foi inferido do versionamento da SPEC.")
         if estados_alterados:
             objetivo = [
                 f"Validar as alterações da versão {ivr} em {len(estados_alterados)} estado(s) da URA: "
@@ -124,7 +133,7 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
             contexto.append(rotulo + p)
     contexto = [c for c in contexto if not c.rstrip().endswith(":")]
     if not contexto:
-        lacunas.append("Contexto/necessidade: não encontrei a descrição do problema no EEP.")
+        _lac("Contexto/necessidade: não encontrei a descrição do problema no EEP.")
 
     regras = list(secoes.get("regras") or [])
     fonte_regras = "EEP"
@@ -132,7 +141,7 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
         regras = list(secoes["solucao_detalhe"])
     if not regras:
         fonte_regras = "SPEC"
-        lacunas.append("Regras de negócio: o EEP não traz regras — listei as alterações descritas no versionamento da SPEC.")
+        _lac("Regras de negócio: o EEP não traz regras — listei as alterações descritas no versionamento da SPEC.")
         regras = [f"{e['nome']}: {e['alteracao']}" for e in estados_alterados if e.get("alteracao")]
 
     # ── escopo ──────────────────────────────────────────────────────
@@ -215,7 +224,7 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
     if chaves:
         massa.append("Chaves/parâmetros que condicionam o fluxo: " + ", ".join(chaves[:12]) + (" …" if len(chaves) > 12 else "") + ".")
     else:
-        lacunas.append("Chaves sistêmicas: nenhuma chave identificada no EEP — confirmar com o time quais chaves/flags precisam estar ativas.")
+        _lac("Chaves sistêmicas: nenhuma chave identificada no EEP — confirmar com o time quais chaves/flags precisam estar ativas.")
     if vdns:
         massa.append(f"{len(vdns)} VDN(s) de transferência citados no EEP (ver aba Legenda).")
     if not secoes.get("massa"):

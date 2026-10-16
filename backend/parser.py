@@ -4,6 +4,7 @@ Orquestrador fino: liga spec_reader -> color_utils -> eep_reader -> ct_rules
 que o frontend (index.html) e o app.py ja esperam.
 """
 import io
+import re
 import sys
 import os
 
@@ -33,10 +34,25 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
                                      eep_filename="", spec_bytes_empresas=None, progress_callback=None):
     avisar = progress_callback or _sem_callback
     spec_raw = _bytes_of(spec_bytes)
-    eep_raw = _bytes_of(eep_bytes)
+    eep_raw = _bytes_of(eep_bytes) if eep_bytes else b""
 
-    avisar(2, "Lendo o EEP...")
-    eep_model = eep_reader.minerar_eep(eep_raw, eep_filename)
+    sem_eep = not eep_raw
+    if sem_eep:
+        # Incidente/correcao: sem EEP, so a SPEC + codigo IVR para localizar o projeto.
+        if not (ivr_code or "").strip():
+            raise ValueError("Sem EEP, informe o código IVR (ex.: IVR-245997) para localizar o projeto na SPEC.")
+        avisar(2, "Sem EEP: usando só a SPEC e o código IVR...")
+        eep_model = {
+            "nome": "Projeto sem nome identificado no EEP",
+            "jira": "JIRA/IVR não identificado no EEP",
+            "chaves": [],
+            "vdns": [],
+            "secoes": {},
+            "campos": {},
+        }
+    else:
+        avisar(2, "Lendo o EEP...")
+        eep_model = eep_reader.minerar_eep(eep_raw, eep_filename)
 
     avisar(6, "Lendo a SPEC...")
     spec_model = spec_reader.read_spec(
@@ -80,6 +96,14 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
 
     avisar(98, "Finalizando...")
 
+    if sem_eep:
+        plano["revisao_necessaria"].append(
+            {
+                "tipo": "info_sem_eep",
+                "detalhe": "Modelagem feita sem EEP (incidente/correção): o escopo, o objetivo e as regras vêm do "
+                "versionamento da SPEC para o IVR informado. Chaves sistêmicas e VDNs do EEP não foram lidos.",
+            }
+        )
     if spec_model.get("ivr_origem") and spec_model.get("ivr_origem") != "informado pelo usuario":
         plano["revisao_necessaria"].append(
             {
@@ -92,7 +116,12 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     jira_ivr = ivr_efetivo or spec_model["versionamento"].get("ivr") or eep_model.get("jira") or "IVR não identificado"
 
     return {
-        "projeto_nome": eep_model.get("nome"),
+        "projeto_nome": (
+            re.sub(r"^\s*IVR\W*\d{5,7}\s*[-–:]*\s*", "", str(spec_model["versionamento"].get("ivr") or "")).strip() or eep_model.get("nome")
+            if sem_eep
+            else eep_model.get("nome")
+        ),
+        "sem_eep": sem_eep,
         "jira_ivr": jira_ivr,
         "chaves_api": eep_model.get("chaves", []),
         "vdns_roteamento": eep_model.get("vdns", []),

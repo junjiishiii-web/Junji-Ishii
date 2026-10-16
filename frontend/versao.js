@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.16',
+    data: '16/10/2026',
+    itens: [
+      'EEP opcional: incidentes/correções sem escopo podem ser modelados só com a SPEC + código IVR (obrigatório nesse caso). Objetivo, regras e escopo saem do versionamento da SPEC, com aviso nas lacunas e em Revisão Necessária.',
+    ],
+  },
+  {
     numero: '2.15',
     data: '15/10/2026',
     itens: [

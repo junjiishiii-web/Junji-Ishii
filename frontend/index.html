@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=20261020" />
-  <script src="versao.js?v=2.15"></script>
+  <script src="versao.js?v=2.16"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -50,13 +50,13 @@
       </div>
       <p class="file-loaded-name" id="specNameLabel" style="margin-top:8px; display:none;"></p>
 
-      <input type="text" id="ivrCodeInput" class="ivr-code-input" placeholder="Código IVR (ex: IVR-245422) — opcional" style="margin-top:8px;" />
+      <input type="text" id="ivrCodeInput" class="ivr-code-input" placeholder="Código IVR (ex: IVR-245422) — obrigatório sem EEP" style="margin-top:8px;" />
     </div>
 
     <!-- EEP -->
     <div class="upload-section">
-      <p class="upload-label">Arraste o arquivo do EEP aqui</p>
-      <p class="upload-hint">EEP — Especificação de Escopo do Projeto (PDF, xlsx ou docx)</p>
+      <p class="upload-label">Arraste o arquivo do EEP aqui <span class="opcional-tag">(opcional)</span></p>
+      <p class="upload-hint">EEP — Especificação de Escopo do Projeto (PDF, xlsx ou docx). Incidente/correção sem escopo? Gere só com a SPEC + código IVR.</p>
       <div class="upload-controls">
         <input type="file" id="scopeFile" accept=".pdf,.xlsx,.docx" style="display:none;" />
         <button class="btn-upload" onclick="document.getElementById('scopeFile').click()">Procurar arquivo</button>
@@ -296,7 +296,7 @@
           <h3>Começando em 4 passos</h3>
           <ol>
             <li><strong>Suba a SPEC</strong> (.xlsx) em “Procurar arquivo(s)”. Se a SPEC for dividida em duas (MERGE + ClaroEmpresas), selecione os dois arquivos de uma vez.</li>
-            <li><strong>Suba o EEP</strong> do projeto (PDF, xlsx ou docx).</li>
+            <li><strong>Suba o EEP</strong> do projeto (PDF, xlsx ou docx) — <em>opcional</em>: em incidente/correção sem escopo, pule este passo e informe o código IVR.</li>
             <li>Confira a opção ao lado da SPEC (<em>Alteração de SPEC</em> é o normal) e, se quiser, informe o <strong>código IVR</strong> do projeto (ex.: <code>IVR-246110</code>).</li>
             <li>Clique em <strong>Gerar Modelagem</strong> e aguarde a barra de progresso. Ao terminar, você cai na aba <em>Geral</em> com o resultado.</li>
           </ol>
@@ -556,8 +556,13 @@
   function _aguardar(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
   async function dispararModelagemCompleta() {
-    if (!specLoaded || !scopeLoaded) {
-      alert("Por favor, selecione e carregue ambos os arquivos (SPEC e EEP).");
+    if (!specLoaded) {
+      alert("Por favor, selecione e carregue o arquivo da SPEC.");
+      return;
+    }
+    if (!scopeLoaded && !document.getElementById('ivrCodeInput').value.trim()) {
+      alert("Sem EEP (incidente/correção), informe o código IVR (ex.: IVR-245997) para localizar o projeto na SPEC.");
+      document.getElementById('ivrCodeInput').focus();
       return;
     }
 
@@ -568,7 +573,7 @@
 
     try {
       if (servidorPrecisaReenvio) await reenviarEntradasSalvas();
-      const urlInicio = `${API}/api/iniciar-modelagem?tipo_a=${tipo_a}&ivr_code=${ivrCode}`;
+      const urlInicio = `${API}/api/iniciar-modelagem?tipo_a=${tipo_a}&ivr_code=${ivrCode}&sem_eep=${!scopeLoaded}`;
       let respInicio = await fetch(urlInicio, { method: "POST", credentials: "same-origin" });
       if (respInicio.status === 400 && await reenviarEntradasSalvas()) {
         respInicio = await fetch(urlInicio, { method: "POST", credentials: "same-origin" });
@@ -873,7 +878,7 @@
       const spec = await dbGet('estado', 'arq_spec');
       const emp = await dbGet('estado', 'arq_spec_emp');
       const eep = await dbGet('estado', 'arq_eep');
-      if (!spec || !eep) return false;
+      if (!spec) return false;
       const enviar = async (rota, item) => {
         const fd = new FormData();
         fd.append('file', item.blob, item.nome);
@@ -881,7 +886,7 @@
       };
       await enviar('/api/upload-spec', spec);
       if (emp) await enviar('/api/upload-spec-empresas', emp);
-      await enviar('/api/upload-eep', eep);
+      if (eep) await enviar('/api/upload-eep', eep);
       servidorPrecisaReenvio = false;
       return true;
     } catch (err) {
@@ -901,7 +906,7 @@
       if (!(await reenviarEntradasSalvas())) return;
       const tipo = (ui && ui.tipo_a) || document.getElementById('projetoTipoSelect').value;
       const ivr = encodeURIComponent((ui && ui.ivr) || '');
-      const r0 = await fetch(`${API}/api/iniciar-modelagem?tipo_a=${tipo}&ivr_code=${ivr}`, { method: 'POST', credentials: 'same-origin' });
+      const r0 = await fetch(`${API}/api/iniciar-modelagem?tipo_a=${tipo}&ivr_code=${ivr}&sem_eep=${!(await dbGet('estado', 'arq_eep'))}`, { method: 'POST', credentials: 'same-origin' });
       if (!r0.ok) return;
       for (let n = 0; n < 300; n++) {
         const p = await (await fetch(`${API}/api/progresso`, { credentials: 'same-origin' })).json();

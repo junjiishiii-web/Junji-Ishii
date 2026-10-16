@@ -744,3 +744,4 @@ h3.section-title {
 .bi-nota { font-size: 12px; color: #666; margin: 0 0 12px; }
 .bi-contador { font-size: 12px; font-weight: 600; color: #fff; background: #1f4e79; border-radius: 10px; padding: 1px 9px; margin-left: 6px; vertical-align: middle; }
 .bi-existente .bi-contador { background: #7a7a7a; }
+.opcional-tag { font-size: 11px; font-weight: 500; opacity: .75; margin-left: 4px; }

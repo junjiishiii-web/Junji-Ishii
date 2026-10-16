@@ -269,9 +269,18 @@ async def upload_escopo(request: Request, response: Response, file: UploadFile =
     return await upload_eep(request, response, file)
 
 
+def _validar_entradas(sessao, ivr_code, sem_eep=False):
+    if not sessao.spec_bytes:
+        raise HTTPException(status_code=400, detail="Certifique-se de carregar o arquivo da SPEC.")
+    if (sem_eep or not sessao.eep_bytes) and not (ivr_code or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Sem EEP (incidente/correção), informe o código IVR (ex.: IVR-245997) para localizar o projeto na SPEC.",
+        )
+
+
 def _gerar(sessao: sessions.SessaoDados, tipo_a: bool, ivr_code: str = ""):
-    if not sessao.spec_bytes or not sessao.eep_bytes:
-        raise HTTPException(status_code=400, detail="Certifique-se de carregar os arquivos da SPEC e do EEP.")
+    _validar_entradas(sessao, ivr_code)
     try:
         return gerar_modelagem_testes_completa(
             io.BytesIO(sessao.spec_bytes),
@@ -300,17 +309,17 @@ def obter_modelagem(request: Request, response: Response, tipo_a: bool = True, i
 # ---------- Geração assíncrona com progresso real (para a barra de % + ETA) ----------
 
 
-def _rodar_modelagem_em_thread(sessao: sessions.SessaoDados, tipo_a, ivr_code):
+def _rodar_modelagem_em_thread(sessao: sessions.SessaoDados, tipo_a, ivr_code, sem_eep=False):
     def callback(pct, etapa):
         sessao.atualizar_progresso(percentual=round(pct, 1), etapa=etapa)
 
     try:
         dados = gerar_modelagem_testes_completa(
             io.BytesIO(sessao.spec_bytes),
-            sessao.eep_bytes,
+            None if sem_eep else sessao.eep_bytes,
             tipo_a=tipo_a,
             ivr_code=ivr_code or None,
-            eep_filename=sessao.nome_eep,
+            eep_filename="" if sem_eep else sessao.nome_eep,
             spec_bytes_empresas=sessao.spec_empresas_bytes,
             progress_callback=callback,
         )
@@ -325,12 +334,11 @@ def _rodar_modelagem_em_thread(sessao: sessions.SessaoDados, tipo_a, ivr_code):
 
 
 @app.post("/api/iniciar-modelagem")
-def iniciar_modelagem(request: Request, response: Response, tipo_a: bool = True, ivr_code: str = ""):
+def iniciar_modelagem(request: Request, response: Response, tipo_a: bool = True, ivr_code: str = "", sem_eep: bool = False):
     sessao, sid, novo = _sessao_de(request)
     _aplicar_cookie_se_novo(response, sid, novo)
 
-    if not sessao.spec_bytes or not sessao.eep_bytes:
-        raise HTTPException(status_code=400, detail="Certifique-se de carregar os arquivos da SPEC e do EEP.")
+    _validar_entradas(sessao, ivr_code, sem_eep)
 
     import time as _time
 
@@ -340,7 +348,7 @@ def iniciar_modelagem(request: Request, response: Response, tipo_a: bool = True,
         )
     sessao.resultado = None
 
-    thread = threading.Thread(target=_rodar_modelagem_em_thread, args=(sessao, tipo_a, ivr_code), daemon=True)
+    thread = threading.Thread(target=_rodar_modelagem_em_thread, args=(sessao, tipo_a, ivr_code, sem_eep), daemon=True)
     thread.start()
     return {"status": "iniciado"}
 
