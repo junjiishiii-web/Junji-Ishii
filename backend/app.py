@@ -272,11 +272,6 @@ async def upload_escopo(request: Request, response: Response, file: UploadFile =
 def _validar_entradas(sessao, ivr_code, sem_eep=False):
     if not sessao.spec_bytes:
         raise HTTPException(status_code=400, detail="Certifique-se de carregar o arquivo da SPEC.")
-    if (sem_eep or not sessao.eep_bytes) and not (ivr_code or "").strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Sem EEP (incidente/correção), informe o código IVR (ex.: IVR-245997) para localizar o projeto na SPEC.",
-        )
 
 
 def _gerar(sessao: sessions.SessaoDados, tipo_a: bool, ivr_code: str = ""):
@@ -406,7 +401,7 @@ async def exportar_planilha_testes_dados(request: Request):
         corpo = await request.json()
         assert isinstance(corpo, dict)
         casos = corpo.get("casos_teste")
-        assert isinstance(casos, list) and 0 < len(casos) <= MAX_CTS_PDF and all(isinstance(c, dict) for c in casos)
+        assert isinstance(casos, list) and 0 < len(casos) <= MAX_CTS_XLSX and all(isinstance(c, dict) for c in casos)
         dados = dados_do_navegador_para_exportacao(corpo)
         xlsx_bytes, _relatorio = exportar_planilha_para_bytes(dados)
     except (AssertionError, KeyError, TypeError, ValueError):
@@ -452,6 +447,7 @@ EVID_MAX_TOTAL = 50 * 1024 * 1024  # por PDF (o navegador divide projetos grande
 EVID_EXTENSOES = {"txt", "log", "csv", "json", "xml", "png", "jpg", "jpeg", "pdf", "docx", "xlsx"}
 STATUS_EXECUCAO = {"pendente", "ok", "nok", "blocked"}
 MAX_CTS_PDF = 2000
+MAX_CTS_XLSX = 20000  # SPEC inteira pode gerar milhares de CTs
 
 
 def _nome_seguro(nome):

@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.17',
+    data: '19/10/2026',
+    itens: [
+      'Mapear 100% da SPEC: deixe o campo IVR vazio (sem EEP) ou escreva "Mapear 100%" para modelar TODOS os estados e TODAS as saídas da SPEC, sem filtrar por IVR/versão (inclui todos os prompts ainda não ouvidos em algum CT). Não gera bloco regressivo (tudo é testado).',
+      'Telas e exportações preparadas para milhares de CTs: os cenários são carregados em lotes ao rolar a página e o xlsx aceita até 20 mil CTs.',
+    ],
+  },
+  {
     numero: '2.16',
     data: '16/10/2026',
     itens: [

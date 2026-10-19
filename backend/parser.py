@@ -30,17 +30,31 @@ def _sem_callback(pct, etapa):
     pass
 
 
+_TERMOS_100 = {"mapear100", "mapear100%", "100", "100%", "completa", "specinteira", "specCompleta".lower(), "tudo", "todos", "all"}
+
+
+def pede_spec_completa(ivr_code, tem_eep):
+    """Campo IVR "Mapear 100%" (ou parecido), ou vazio SEM EEP => mapear a SPEC inteira."""
+    texto = re.sub(r"[^a-z0-9%]", "", (ivr_code or "").lower())
+    if not texto:
+        return not tem_eep
+    return texto in _TERMOS_100 or texto.startswith("mapear")
+
+
 def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code=None,
-                                     eep_filename="", spec_bytes_empresas=None, progress_callback=None):
+                                     eep_filename="", spec_bytes_empresas=None, progress_callback=None,
+                                     modo_completo=False):
     avisar = progress_callback or _sem_callback
     spec_raw = _bytes_of(spec_bytes)
     eep_raw = _bytes_of(eep_bytes) if eep_bytes else b""
 
     sem_eep = not eep_raw
+    modo_completo = modo_completo or pede_spec_completa(ivr_code, not sem_eep)
+    if modo_completo:
+        ivr_code = None  # SPEC completa: nao ha projeto/IVR para localizar
+        tipo_a = True
     if sem_eep:
         # Incidente/correcao: sem EEP, so a SPEC + codigo IVR para localizar o projeto.
-        if not (ivr_code or "").strip():
-            raise ValueError("Sem EEP, informe o código IVR (ex.: IVR-245997) para localizar o projeto na SPEC.")
         avisar(2, "Sem EEP: usando só a SPEC e o código IVR...")
         eep_model = {
             "nome": "Projeto sem nome identificado no EEP",
@@ -63,7 +77,7 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     ivr_efetivo = spec_model.get("ivr_resolvido") or ivr_code
 
     avisar(12, "Detectando a(s) cor(es) da versão vigente...")
-    cores_detectadas = color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
+    cores_detectadas = [] if modo_completo else color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
     # Cores que marcam as linhas dos estados no versionamento (ex.: amarelo) tambem identificam as
     # celulas alteradas nas abas de estado, mesmo quando o cabecalho do bloco usa outra cor.
     for cor_estado in spec_model["versionamento"].get("cores_estados", []):
@@ -77,7 +91,9 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
         # a fatia 20%-90% do progresso geral desta funcao.
         avisar(20 + (max(0, min(100, pct_interno)) / 100) * 70, etapa)
 
-    plano = gerar_plano_ct(spec_model, eep_model, tipo_a=tipo_a, itens_cor=itens_cor, progress_callback=_sub_progresso)
+    plano = gerar_plano_ct(
+        spec_model, eep_model, tipo_a=tipo_a, itens_cor=itens_cor, progress_callback=_sub_progresso, modo_completo=modo_completo
+    )
 
     spec_model_empresas = plano_empresas = None
     if spec_bytes_empresas:
@@ -96,7 +112,7 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
 
     avisar(98, "Finalizando...")
 
-    if sem_eep:
+    if sem_eep and not modo_completo:
         plano["revisao_necessaria"].append(
             {
                 "tipo": "info_sem_eep",
@@ -113,10 +129,13 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
             }
         )
 
-    jira_ivr = ivr_efetivo or spec_model["versionamento"].get("ivr") or eep_model.get("jira") or "IVR não identificado"
+    jira_ivr = "SPEC-COMPLETA" if modo_completo else (
+        ivr_efetivo or spec_model["versionamento"].get("ivr") or eep_model.get("jira") or "IVR não identificado"
+    )
 
     return {
-        "projeto_nome": (
+        "modo_completo": modo_completo,
+        "projeto_nome": "Cobertura completa da SPEC" if modo_completo else (
             re.sub(r"^\s*IVR\W*\d{5,7}\s*[-–:]*\s*", "", str(spec_model["versionamento"].get("ivr") or "")).strip() or eep_model.get("nome")
             if sem_eep
             else eep_model.get("nome")

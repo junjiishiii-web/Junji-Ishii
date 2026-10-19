@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=20261020" />
-  <script src="versao.js?v=2.16"></script>
+  <script src="versao.js?v=2.17"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -50,13 +50,13 @@
       </div>
       <p class="file-loaded-name" id="specNameLabel" style="margin-top:8px; display:none;"></p>
 
-      <input type="text" id="ivrCodeInput" class="ivr-code-input" placeholder="Código IVR (ex: IVR-245422) — obrigatório sem EEP" style="margin-top:8px;" />
+      <input type="text" id="ivrCodeInput" class="ivr-code-input" placeholder="Código IVR (ex: IVR-245422) · vazio sem EEP ou &quot;Mapear 100%&quot; = SPEC inteira" style="margin-top:8px;" />
     </div>
 
     <!-- EEP -->
     <div class="upload-section">
       <p class="upload-label">Arraste o arquivo do EEP aqui <span class="opcional-tag">(opcional)</span></p>
-      <p class="upload-hint">EEP — Especificação de Escopo do Projeto (PDF, xlsx ou docx). Incidente/correção sem escopo? Gere só com a SPEC + código IVR.</p>
+      <p class="upload-hint">EEP — Especificação de Escopo do Projeto (PDF, xlsx ou docx). Incidente/correção sem escopo? Sem EEP: informe o código IVR, ou deixe o campo IVR vazio / escreva "Mapear 100%" para modelar a SPEC inteira.</p>
       <div class="upload-controls">
         <input type="file" id="scopeFile" accept=".pdf,.xlsx,.docx" style="display:none;" />
         <button class="btn-upload" onclick="document.getElementById('scopeFile').click()">Procurar arquivo</button>
@@ -317,6 +317,7 @@
           <ul>
             <li><strong>Em branco</strong>: a ferramenta descobre o IVR pelo nome do projeto no EEP (ou pelo código no nome do arquivo). Mostra um aviso em <em>Revisão Necessária</em> dizendo qual usou.</li>
             <li><strong>Preenchido</strong>: só o(s) bloco(s) desse IVR nas abas de versionamento são usados. Um mesmo IVR pode ter mais de um bloco (por exemplo, a versão inicial e uma atualização); todos entram.</li>
+            <li><strong>Mapear 100% da SPEC</strong>: deixe o campo vazio <em>sem EEP</em>, ou escreva <code>Mapear 100%</code>. A ferramenta modela <strong>todos os estados e todas as saídas</strong> da SPEC (e todos os prompts), sem filtrar por IVR/versão e sem bloco regressivo. Gera milhares de CTs e pode levar vários minutos; estados sem caminho a partir do _Start_ entram marcados com aviso. Em SPECs muito grandes prefira rodar na sua máquina (o servidor gratuito pode estourar o tempo).</li>
             <li>Se o código informado <strong>não existe na SPEC</strong>, nenhum CT é gerado (de propósito, para não modelar estado de outro projeto). Um aviso vermelho na aba <em>Geral</em> explica o motivo e lista os IVRs encontrados na SPEC.</li>
           </ul>
         </section>
@@ -560,11 +561,15 @@
       alert("Por favor, selecione e carregue o arquivo da SPEC.");
       return;
     }
-    if (!scopeLoaded && !document.getElementById('ivrCodeInput').value.trim()) {
-      alert("Sem EEP (incidente/correção), informe o código IVR (ex.: IVR-245997) para localizar o projeto na SPEC.");
-      document.getElementById('ivrCodeInput').focus();
-      return;
-    }
+    const ivrTxt = document.getElementById('ivrCodeInput').value.trim();
+    const pede100 = (!ivrTxt && !scopeLoaded) || /^\s*(mapear|100|completa|tudo|todos|all)/i.test(ivrTxt);
+    if (pede100 && !confirm(
+      'Modo "Mapear 100% da SPEC": a ferramenta vai modelar TODOS os estados e TODAS as saídas da SPEC, sem filtrar por IVR/versão.
+
+' +
+      'Isso pode gerar milhares de CTs e levar vários minutos.
+
+Deseja continuar?')) return;
 
     const tipo_a = document.getElementById('projetoTipoSelect').value;
     const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
@@ -1349,17 +1354,16 @@
 
     // Audit cards
     const audit = document.getElementById('capaAuditoria');
-    audit.innerHTML = "";
-    data.casos_teste.forEach(caso => {
+    audit.innerHTML = data.casos_teste.map(caso => {
       const badge = caso.sp_pendente
         ? `<span class="badge-pendente">SP Pendente</span>`
         : `<span class="badge-mapeado">Mapeado</span>`;
-      audit.innerHTML += `
+      return `
         <div class="audit-card">
           <span class="audit-card-name"><strong>${escHtml(caso.ct_id)}</strong> — ${escHtml(caso.estado)}</span>
           ${badge}
         </div>`;
-    });
+    }).join('');
 
     renderizarBI(data);
     renderizarPlanejamento(data);
@@ -1382,10 +1386,9 @@
 
     // ── 2. MASSA DE TESTES ───────────────────────────────────
     const massaBody = document.getElementById('massaTableBody');
-    massaBody.innerHTML = "";
-    data.casos_teste.forEach(caso => {
+    massaBody.innerHTML = data.casos_teste.map(caso => {
       const stateQA = avaliacoesQA[caso.ct_id] || { status: "pendente", comments: "" };
-      massaBody.innerHTML += `
+      return `
         <tr>
           <td><strong>${escHtml(caso.ct_id)}</strong></td>
           <td>${escHtml(caso.bloco_nome)}</td>
@@ -1405,7 +1408,7 @@
             value="${escHtml(stateQA.comments)}" placeholder="Descreva observações de evidência…"
             oninput="salvarDadosExecucao('${escHtml(caso.ct_id)}', 'comments', this.value)" /></td>
         </tr>`;
-    });
+    }).join('');
 
     // ── 3. LEGENDA ───────────────────────────────────────────
     let blocosRows = "";
@@ -1440,11 +1443,42 @@
 
     // ── 4. CENÁRIOS BDD ──────────────────────────────────────
     const cenarios = document.getElementById('cenariosContainer');
-    cenarios.innerHTML = data.casos_teste.map(caso => htmlCartaoCT(caso, false)).join('');
-    document.getElementById('execucaoContainer').innerHTML = data.casos_teste.map(caso => htmlCartaoCT(caso, true)).join('');
+    renderizarEmLotes(cenarios, data.casos_teste, false);
+    renderizarEmLotes(document.getElementById('execucaoContainer'), data.casos_teste, true);
     evidenciasPorCT = {};
     atualizarResumoExecucao();
     return renderizarRevisao(data);
+  }
+
+  // SPECs inteiras geram milhares de CTs: desenha em lotes e carrega o resto ao rolar (ou pelo botao).
+  const LOTE_CARDS = 80;
+  function renderizarEmLotes(container, casos, modoExecucao) {
+    container.innerHTML = '';
+    if (container._observador) { container._observador.disconnect(); container._observador = null; }
+    let proximo = 0;
+    const sentinela = document.createElement('div');
+    sentinela.className = 'lote-sentinela';
+    function carregarMais() {
+      if (proximo >= casos.length) { sentinela.remove(); return; }
+      const fim = Math.min(proximo + LOTE_CARDS, casos.length);
+      sentinela.insertAdjacentHTML('beforebegin', casos.slice(proximo, fim).map(c => htmlCartaoCT(c, modoExecucao)).join(''));
+      proximo = fim;
+      sentinela.innerHTML = proximo < casos.length
+        ? `<button class="btn-lote">Mostrar mais (${proximo} de ${casos.length} CTs exibidos)</button>`
+        : '';
+      const btn = sentinela.querySelector('.btn-lote');
+      if (btn) btn.onclick = carregarMais;
+      if (proximo >= casos.length) sentinela.remove();
+      if (modoExecucao) { Object.keys(evidenciasPorCT).forEach(renderEvidencias); }
+    }
+    container.appendChild(sentinela);
+    carregarMais();
+    if (casos.length > LOTE_CARDS && 'IntersectionObserver' in window) {
+      container._observador = new IntersectionObserver(entradas => {
+        if (entradas.some(e => e.isIntersecting) && sentinela.isConnected) carregarMais();
+      }, { rootMargin: '600px' });
+      container._observador.observe(sentinela);
+    }
   }
 
   function htmlCartaoCT(caso, modoExecucao) {

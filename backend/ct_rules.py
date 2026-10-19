@@ -308,6 +308,12 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
     mapa_rotas = spec_model["mapa_rotas"]
     estados = spec_model["estados"]
 
+    chave_cache = (destino_nome, perfil_entrada, tuple(sorted((restricoes_extra or {}).items())), modo_entrada)
+    cache_bfs = spec_model.setdefault("_bfs_cache", {})
+    if chave_cache in cache_bfs:
+        cam_c, perfil_c = cache_bfs[chave_cache]
+        return list(cam_c), perfil_c
+
     start_state = _detectar_start_state(spec_model)
     if not start_state:
         return [], perfil_entrada
@@ -367,7 +373,9 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
             for bloquear_hubs in (True, False):
                 caminho = _busca(perfil_ani, bloquear_hubs, filtro)
                 if caminho:
+                    cache_bfs[chave_cache] = (list(caminho), perfil_ani)
                     return caminho, perfil_ani
+    cache_bfs[chave_cache] = ([], perfil_entrada)
     return [], perfil_entrada
 
 
@@ -756,10 +764,15 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
         else:
             resultado_hop = prompt_texto
 
+        acao_passo = _acao_para_step(j, condicao, perfil)
+        if j == 0 and estado_nome != _detectar_start_state(spec_model):
+            acao_passo = "Entrar no estado (sem caminho a partir do _Start_ na SPEC)"
+        elif j > 0 and not condicao:
+            acao_passo = "Seguir para o estado (estado anterior declarado na SPEC; sem transição explícita)"
         steps.append(
             {
                 "step_num": j + 1,
-                "acao": _acao_para_step(j, condicao, perfil),
+                "acao": acao_passo,
                 "estado": estado_nome,
                 "prompt_id": prompt_id,
                 "prompt_texto": prompt_texto,
@@ -802,7 +815,10 @@ def _formatar_resultado_esperado(steps, sp_final, sp_pendente):
 
 
 class GeradorCT:
-    def __init__(self, spec_model, eep_model, tipo_a=True, progress_callback=None):
+    def __init__(self, spec_model, eep_model, tipo_a=True, progress_callback=None, modo_completo=False):
+        self.modo_completo = modo_completo
+        self._notas_caminho = {}
+        self._bfs = self._bfs_completo if modo_completo else bfs_caminho_entrada
         self.spec_model = spec_model
         self.eep_model = eep_model
         self.tipo_a = tipo_a
@@ -820,6 +836,8 @@ class GeradorCT:
         # vier vazia (projeto greenfield, sem SP publicado ainda), nao ha
         # nada para comparar e todas as transicoes contam como candidatas.
         self._sps_novos = {sp["codigo"] for sp in spec_model.get("versionamento_bi", []) if sp.get("codigo")}
+        if modo_completo:
+            self._sps_novos = set()  # SPEC completa: nao ha "SP novo" — tudo entra
         spec_model["_sps_novos"] = self._sps_novos  # montar_steps mostra o SP do PROMPT quando ele e novo
         self._transicoes_ignoradas_sp_antigo = 0
         self._transicoes_ignoradas_sem_sp = 0
@@ -860,6 +878,8 @@ class GeradorCT:
             )
             return None
 
+        if self.modo_completo and self._notas_caminho.get(estado) and not str(alteracao or "").startswith("["):
+            alteracao = f"[{self._notas_caminho[estado]}] {alteracao or ''}".strip()
         steps = montar_steps(self.spec_model, caminho, perfil, transicao_final=transicao_final)
         # Steps adicionais (ex.: tentativas REJ1/REJ2/... ou SIL1/SIL2/... da
         # mesma escada, num unico CT) entram depois do caminho ate o estado.
@@ -964,6 +984,10 @@ class GeradorCT:
 
     def gerar_cts_tipo_a(self):
         estados_alterados = list(self.spec_model["versionamento"]["estados_alterados"])
+        if self.modo_completo:
+            estados_alterados = [
+                {"nome": n, "alteracao": "Cobertura completa da SPEC"} for n in self._estados_em_ordem_de_fluxo()
+            ]
 
         # A VersionamentoBI e a fonte de verdade de quais SPs sao realmente
         # novos desta versao. Se ela cita um estado que o changelog da
@@ -1117,8 +1141,10 @@ class GeradorCT:
                 and bool(self.spec_model["estados"][nome_real].get("concat_exemplos"))
             )
             usar_dicas = usar_dicas or concat_alterado
-            if not transicoes or (not self._sps_novos and not usar_dicas and len(transicoes) > LIMITE_TRANSICOES_SEM_SP):
-                caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, nome_real, perfil_entrada=perfil_base)
+            if not transicoes or (
+                not self._sps_novos and not usar_dicas and not self.modo_completo and len(transicoes) > LIMITE_TRANSICOES_SEM_SP
+            ):
+                caminho, perfil_efetivo = self._bfs(self.spec_model, nome_real, perfil_entrada=perfil_base)
                 self._add_ct(bloco_idx, bloco_nome, nome_real, est["alteracao"], perfil_efetivo, caminho)
                 continue
 
@@ -1236,8 +1262,7 @@ class GeradorCT:
 
                     restr = extrair_restricoes_sessao(t["condicao"])
                     perfil = restr.get("ani", perfil_base)
-                    caminho, perfil_efetivo = bfs_caminho_entrada(
-                        self.spec_model, nome_real, perfil_entrada=perfil, restricoes_extra=restr
+                    caminho, perfil_efetivo = self._bfs(self.spec_model, nome_real, perfil_entrada=perfil, restricoes_extra=restr
                     )
                     if not caminho:
                         sem_caminho_local += 1
@@ -1279,8 +1304,7 @@ class GeradorCT:
 
                 restr = extrair_restricoes_sessao(tentativas[0]["condicao"])
                 perfil = restr.get("ani", perfil_base)
-                caminho, perfil_efetivo = bfs_caminho_entrada(
-                    self.spec_model, nome_real, perfil_entrada=perfil, restricoes_extra=restr
+                caminho, perfil_efetivo = self._bfs(self.spec_model, nome_real, perfil_entrada=perfil, restricoes_extra=restr
                 )
                 if not caminho:
                     sem_caminho_local += len(tentativas)
@@ -1352,7 +1376,7 @@ class GeradorCT:
                 )
                 self.revisao_necessaria.append(
                     {
-                        "tipo": "estado_sem_sp_novo",
+                        "tipo": "estado_sem_ct_completo" if self.modo_completo else "estado_sem_sp_novo",
                         "estado": nome_real,
                         "detalhe": f"Estado '{nome_real}' está no Versionamento, mas não gerou nenhum CT: {motivo} "
                         "Confira manualmente se o código IVR/cor detectados "
@@ -1381,7 +1405,7 @@ class GeradorCT:
                 int(5 + 75 * idx / max(total_chaves, 1)),
                 f"Gerando cobertura por produto {idx + 1} de {total_chaves} ({chave})...",
             )
-            caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado_alvo, perfil_entrada="aninao")
+            caminho, perfil_efetivo = self._bfs(self.spec_model, estado_alvo, perfil_entrada="aninao")
             self._add_ct(
                 bloco_idx,
                 bloco_nome,
@@ -1392,6 +1416,54 @@ class GeradorCT:
             )
 
     # ---------- L9: fraseologia obrigatoria p/ prompts na cor do projeto ----------
+
+    def _bfs_completo(self, spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa"):
+        """Modo SPEC completa: nenhum estado pode ficar de fora. Sem caminho a partir do _Start_, tenta pelos
+        ESTADOS ANTERIORES declarados na aba do estado; em ultimo caso o CT entra direto no estado, com aviso."""
+        caminho, perfil = bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada, restricoes_extra, modo_entrada)
+        if caminho or modo_entrada != "nativa":
+            return caminho, perfil
+        estados = spec_model["estados"]
+        for ant in (estados.get(destino_nome) or {}).get("estados_anteriores", []):
+            p = resolver_destino(spec_model["mapa_rotas"], ant) or ant
+            if p in estados and p != destino_nome:
+                cam_p, perf_p = bfs_caminho_entrada(spec_model, p, perfil_entrada, None, "nativa")
+                if cam_p:
+                    self._notas_caminho[destino_nome] = f"ENTRADA PELO ESTADO ANTERIOR {p} (a SPEC não traz a transição explícita)"
+                    return cam_p + [destino_nome], perf_p
+        self._notas_caminho[destino_nome] = "SEM CAMINHO A PARTIR DO _START_ (estado de apoio ou entrada vinda de outra URA)"
+        return [destino_nome], perfil_entrada
+
+    def _estados_em_ordem_de_fluxo(self):
+        """Todos os estados com aba: primeiro os alcancaveis a partir do _Start_ (ordem de descoberta), depois os
+        demais — que ganham aviso em Revisao Necessaria (sem caminho de entrada)."""
+        from collections import deque
+
+        estados = self.spec_model["estados"]
+        mapa = self.spec_model["mapa_rotas"]
+        inicio = _detectar_start_state(self.spec_model)
+        ordem, vistos = [], set()
+        fila = deque([inicio] if inicio else [])
+        while fila:
+            atual = fila.popleft()
+            if atual in vistos or atual not in estados:
+                continue
+            vistos.add(atual)
+            ordem.append(atual)
+            for t in estados[atual].get("transicoes", []):
+                dest = resolver_destino(mapa, t.get("destino"))
+                if dest and dest not in vistos:
+                    fila.append(dest)
+        restantes = [n for n in estados if n not in vistos]
+        if restantes:
+            self.revisao_necessaria.append(
+                {
+                    "tipo": "info_estados_inalcancaveis",
+                    "detalhe": f"{len(restantes)} estado(s) da SPEC não são alcançáveis a partir do _Start_ pelas transições "
+                    "lidas e entram sem caminho de entrada: " + ", ".join(restantes[:25]) + (" …" if len(restantes) > 25 else ""),
+                }
+            )
+        return ordem + restantes
 
     def gerar_cts_concat(self):
         """
@@ -1410,7 +1482,7 @@ class GeradorCT:
             exemplos = (self.spec_model["estados"].get(nome_real) or {}).get("concat_exemplos") or []
             if not exemplos:
                 continue
-            caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, nome_real, perfil_entrada="aninao")
+            caminho, perfil_efetivo = self._bfs(self.spec_model, nome_real, perfil_entrada="aninao")
             if not caminho:
                 continue
             perfil_txt = "ANINÃO" if perfil_efetivo == "aninao" else "ANISIM"
@@ -1487,18 +1559,25 @@ class GeradorCT:
 
     def _transicao_que_toca_prompt(self, estado, prompt):
         """(origem, transicao) de uma transicao que leva a `estado` tocando `prompt` como
-        proximo prompt — da o caminho exato (e a variante, ex.: Casa/Empresa) ate ele."""
-        mapa = self.spec_model["mapa_rotas"]
-        state_data = self.spec_model["estados"].get(estado, {})
-        for origem, dados_origem in self.spec_model["estados"].items():
-            for t in dados_origem.get("transicoes", []):
-                alvo = (t.get("prox_prompt") or "").strip()
-                if not alvo or resolver_destino(mapa, t.get("destino")) != estado:
-                    continue
-                casado = _achar_prompt_por_id(state_data.get("prompts", []), normalizar_chave(alvo))
-                if casado and casado["id"] == prompt["id"]:
-                    return origem, t
-        return None, None
+        proximo prompt — da o caminho exato (e a variante, ex.: Casa/Empresa) ate ele.
+        Usa um indice montado UMA vez (a busca ingenua era cubica em SPECs grandes)."""
+        if not hasattr(self, "_idx_prompt_transicao"):
+            mapa = self.spec_model["mapa_rotas"]
+            estados = self.spec_model["estados"]
+            idx = {}
+            for origem, dados_origem in estados.items():
+                for t in dados_origem.get("transicoes", []):
+                    alvo = (t.get("prox_prompt") or "").strip()
+                    if not alvo:
+                        continue
+                    destino = resolver_destino(mapa, t.get("destino"))
+                    if not destino or destino not in estados:
+                        continue
+                    casado = _achar_prompt_por_id(estados[destino].get("prompts", []), normalizar_chave(alvo))
+                    if casado:
+                        idx.setdefault((destino, casado["id"]), (origem, t))
+            self._idx_prompt_transicao = idx
+        return self._idx_prompt_transicao.get((estado, prompt["id"]), (None, None))
 
     def gerar_cts_fraseologia(self, itens_cor):
         """
@@ -1509,7 +1588,10 @@ class GeradorCT:
         Prompts que ja aparecem em algum step de outro CT nao geram CT duplicado.
         """
         itens_cor = dict(itens_cor or {})
-        if not self._sps_novos:
+        if self.modo_completo:
+            for nome_estado, dados_estado in self.spec_model["estados"].items():
+                itens_cor[nome_estado] = [(0, 0, p["id"], "") for p in dados_estado.get("prompts", [])]
+        if not self._sps_novos and not self.modo_completo:
             # Sem SP novo, os prompts que o changelog cita ("*_AgendamentoDeVT"...) sao os novos.
             for estado_nome, (tokens_prompt, _chaves, _dtmfs) in self._dicas_por_estado.items():
                 sd = self.spec_model["estados"].get(estado_nome, {})
@@ -1549,6 +1631,53 @@ class GeradorCT:
             if not novos:
                 continue
 
+            if self.modo_completo:
+                # SPEC inteira: um CT por estado (em lotes de 12 prompts) com um step por prompt ainda nao ouvido,
+                # em vez de um CT por prompt/variante — mantem 100% de cobertura sem milhares de CTs.
+                def _ordem_prompt(p):
+                    fam = _classificar(p["id"])[0]
+                    return {"ini": 0, "rej": 1, "sil": 2}.get(fam, 3)
+
+                novos_ord = sorted(novos, key=_ordem_prompt)
+                caminho_e, perfil_e = self._bfs(self.spec_model, estado, perfil_entrada="aninao")
+                if not caminho_e:
+                    continue
+                for ini_lote in range(0, len(novos_ord), 12):
+                    lote = novos_ord[ini_lote:ini_lote + 12]
+                    if not criado_bloco:
+                        bloco_nome = f"Bloco {bloco_idx}"
+                        self._blocos.append(
+                            {"numero": bloco_idx, "nome": bloco_nome, "cor": self._cor_bloco(bloco_idx), "titulo": f"{bloco_nome} — Fraseologia"}
+                        )
+                        criado_bloco = True
+                    steps_lote = [
+                        {
+                            "step_num": 0,
+                            "acao": f"Ouvir o prompt {p['id']}",
+                            "estado": estado,
+                            "prompt_id": p["id"],
+                            "prompt_texto": p["texto"] or "—",
+                            "sp": p.get("sp"),
+                            "resultado": (f"{p['sp'][0]}={p['sp'][1]} — " if p.get("sp") else "") + (p["texto"] or "—"),
+                        }
+                        for p in lote
+                    ]
+                    ids_lote = ", ".join(p["id"] for p in lote)
+                    sps_lote = []
+                    for p in lote:
+                        if p.get("sp") and p["sp"] not in sps_lote:
+                            sps_lote.append(p["sp"])
+                    self._add_ct(
+                        bloco_idx, f"Bloco {bloco_idx}", estado,
+                        f"Fraseologia completa — prompts do estado ({len(lote)}): {ids_lote}",
+                        perfil_e, caminho_e, sp_final=sps_lote[0] if sps_lote else None, sps_todos=sps_lote,
+                        gherkin_override=f"Dado cliente {'ANINÃO' if perfil_e == 'aninao' else 'ANISIM'}, Quando chegar ao estado {estado}, "
+                        f"Então devem tocar os prompts {lote[0]['id']}{' … ' + lote[-1]['id'] if len(lote) > 1 else ''} conforme a SPEC.",
+                        steps_extra=steps_lote,
+                    )
+                cobertos.update(p["id"] for p in novos)
+                continue
+
             grupos = {}
             for prompt in novos:
                 familia, variante, n = _classificar(prompt["id"])
@@ -1575,13 +1704,13 @@ class GeradorCT:
                     referencia = ini or prompts[0]
                 origem, t_ref = self._transicao_que_toca_prompt(estado, referencia)
                 if origem:
-                    caminho_origem, perfil_efetivo = bfs_caminho_entrada(self.spec_model, origem, perfil_entrada="aninao")
+                    caminho_origem, perfil_efetivo = self._bfs(self.spec_model, origem, perfil_entrada="aninao")
                     caminho = (caminho_origem + [estado]) if caminho_origem else []
                 else:
                     t_ref = None
-                    caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado, perfil_entrada="aninao")
+                    caminho, perfil_efetivo = self._bfs(self.spec_model, estado, perfil_entrada="aninao")
                 if not caminho:
-                    caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado, perfil_entrada="aninao")
+                    caminho, perfil_efetivo = self._bfs(self.spec_model, estado, perfil_entrada="aninao")
                 if not caminho:
                     continue
                 perfil_txt = "ANINÃO" if perfil_efetivo == "aninao" else "ANISIM"
@@ -1725,8 +1854,7 @@ class GeradorCT:
                 if total_saidas >= CAP_SAIDAS_TOTAL:
                     break
                 restr = extrair_restricoes_sessao(t["condicao"])
-                caminho, perfil_ef = bfs_caminho_entrada(
-                    self.spec_model, nome, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr
+                caminho, perfil_ef = self._bfs(self.spec_model, nome, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr
                 )
                 if not caminho:
                     continue
@@ -1770,7 +1898,7 @@ class GeradorCT:
                 )
                 if not t_ent:
                     continue
-                cam_p, perfil_ef = bfs_caminho_entrada(self.spec_model, p, perfil_entrada="aninao")
+                cam_p, perfil_ef = self._bfs(self.spec_model, p, perfil_entrada="aninao")
                 if not cam_p:
                     continue
                 gherkin = (
@@ -1789,7 +1917,7 @@ class GeradorCT:
 
             do_estado = [c for c in self.casos_teste if c["estado"] == nome and not c["regressivo"]]
             if do_estado and all(c["perfil"] == "ANINÃO" for c in do_estado) and resumo["ANI Sim"] < CAP_ANI_SIM:
-                cam, perfil_ef = bfs_caminho_entrada(self.spec_model, nome, perfil_entrada="anisim")
+                cam, perfil_ef = self._bfs(self.spec_model, nome, perfil_entrada="anisim")
                 if cam and perfil_ef == "anisim":
                     gherkin = (
                         f"Dado cliente ANISIM, Quando percorrer o caminho de entrada até o estado {nome}, "
@@ -1809,8 +1937,8 @@ class GeradorCT:
         for nome in alterados:
             if total_cruzadas >= 3 or not start:
                 break
-            cam_nat, _perf = bfs_caminho_entrada(self.spec_model, nome, perfil_entrada="aninao")
-            cam_cru, perfil_ef = bfs_caminho_entrada(self.spec_model, nome, perfil_entrada="aninao", modo_entrada="cruzada")
+            cam_nat, _perf = self._bfs(self.spec_model, nome, perfil_entrada="aninao")
+            cam_cru, perfil_ef = self._bfs(self.spec_model, nome, perfil_entrada="aninao", modo_entrada="cruzada")
             if not cam_cru or len(cam_cru) < 2 or (len(cam_nat) > 1 and cam_nat[1] == cam_cru[1]):
                 continue
             hop = next(
@@ -1844,8 +1972,7 @@ class GeradorCT:
                     continue
                 chaves_usadas.add(m.group(1).lower())
                 restr = extrair_restricoes_sessao(t["condicao"])
-                caminho, perfil_ef = bfs_caminho_entrada(
-                    self.spec_model, nome, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr
+                caminho, perfil_ef = self._bfs(self.spec_model, nome, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr
                 )
                 if not caminho:
                     continue
@@ -1922,7 +2049,7 @@ class GeradorCT:
 
         estado_api = next((a for a in self.spec_model["lista_abas"] if "menu" in a.lower() or "identifica" in a.lower()), None)
         if estado_api:
-            caminho, perfil_efetivo = bfs_caminho_entrada(self.spec_model, estado_api, perfil_entrada="anisim")
+            caminho, perfil_efetivo = self._bfs(self.spec_model, estado_api, perfil_entrada="anisim")
             perfil_txt = "ANISIM" if perfil_efetivo == "anisim" else "ANINÃO"
             gherkin = abreviar_gherkin(
                 f"Dado cliente {perfil_txt} com situacaoInstalacaoProdutoServico diferente de ATIVO (L11), "
@@ -2058,7 +2185,19 @@ class GeradorCT:
         self._progresso(82, "Verificando fraseologia obrigatória (L9)...")
         self.gerar_cts_fraseologia(itens_cor or {})
         self._progresso(90, "Montando o bloco regressivo...")
-        self.gerar_bloco_regressivo()
+        if not self.modo_completo:
+            self.gerar_bloco_regressivo()
+        else:
+            com_ct = {c["estado"] for c in self.casos_teste}
+            sem_ct = [n for n in self.spec_model["estados"] if n not in com_ct]
+            if sem_ct:
+                self.revisao_necessaria.append(
+                    {
+                        "tipo": "info_estados_sem_ct",
+                        "detalhe": f"{len(sem_ct)} estado(s) da SPEC não geraram CT (sem transições, sem prompts ou só documentação): "
+                        + ", ".join(sem_ct[:30]) + (" …" if len(sem_ct) > 30 else ""),
+                    }
+                )
         self._progresso(96, "Organizando blocos, legenda e BI...")
         if self._transicoes_fora_da_alteracao:
             self.revisao_necessaria.append(
@@ -2107,6 +2246,8 @@ class GeradorCT:
         }
 
 
-def gerar_plano_ct(spec_model, eep_model, tipo_a=True, itens_cor=None, progress_callback=None):
-    gerador = GeradorCT(spec_model, eep_model, tipo_a=tipo_a, progress_callback=progress_callback)
-    return gerador.gerar(itens_cor=itens_cor)
+def gerar_plano_ct(spec_model, eep_model, tipo_a=True, itens_cor=None, progress_callback=None, modo_completo=False):
+    gerador = GeradorCT(spec_model, eep_model, tipo_a=tipo_a, progress_callback=progress_callback, modo_completo=modo_completo)
+    plano = gerador.gerar(itens_cor=itens_cor)
+    plano["modo_completo"] = modo_completo
+    return plano
