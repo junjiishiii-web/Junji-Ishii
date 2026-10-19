@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=20261020" />
-  <script src="versao.js?v=2.17"></script>
+  <script src="versao.js?v=2.17.1"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -564,12 +564,8 @@
     const ivrTxt = document.getElementById('ivrCodeInput').value.trim();
     const pede100 = (!ivrTxt && !scopeLoaded) || /^\s*(mapear|100|completa|tudo|todos|all)/i.test(ivrTxt);
     if (pede100 && !confirm(
-      'Modo "Mapear 100% da SPEC": a ferramenta vai modelar TODOS os estados e TODAS as saídas da SPEC, sem filtrar por IVR/versão.
-
-' +
-      'Isso pode gerar milhares de CTs e levar vários minutos.
-
-Deseja continuar?')) return;
+      'Modo "Mapear 100% da SPEC": a ferramenta vai modelar TODOS os estados e TODAS as saídas da SPEC, sem filtrar por IVR/versão.\n\n' +
+      'Isso pode gerar milhares de CTs e levar vários minutos.\n\nDeseja continuar?')) return;
 
     const tipo_a = document.getElementById('projetoTipoSelect').value;
     const ivrCode = encodeURIComponent(document.getElementById('ivrCodeInput').value.trim());
