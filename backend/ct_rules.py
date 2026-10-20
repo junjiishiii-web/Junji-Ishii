@@ -1451,12 +1451,14 @@ class GeradorCT:
             return ganho - 2 * perda
 
         rotulo_alvo = (cenarios[0].get("rotulo_alvo") or "Target").strip(": ") or "Target"
-        ultimo_grupo, bloco_idx, bloco_nome = None, 0, ""
+        ultimo_grupo, bloco_idx, bloco_nome = None, len(self._blocos), ""
+        primeiro_bloco = True
         for i, cen in enumerate(cenarios):
             self._progresso(int(5 + 80 * i / max(len(cenarios), 1)), f"Gerando cenário de transferência {i + 1} de {len(cenarios)}...")
             campos = cen.get("campos") or []
             grupo = next((v for k, v in campos if re.search(r"grupo", k, re.IGNORECASE) and not re.search(r"crit", k, re.IGNORECASE)), "")
-            if grupo != ultimo_grupo or not bloco_idx:
+            if grupo != ultimo_grupo or primeiro_bloco:
+                primeiro_bloco = False
                 bloco_idx += 1
                 bloco_nome = f"Bloco {bloco_idx}"
                 self._blocos.append(
@@ -2308,6 +2310,11 @@ class GeradorCT:
                 "legenda": [],
                 "blocos": [],
             }
+        if self.tipo_a and not self.modo_completo and (self.eep_model.get("cenarios_transferencia") or []):
+            # O EEP lista cenarios com TARGET/ID de transferencia ATH: alem dos CTs de navegacao do projeto,
+            # cada cenario/target ganha o seu CT (todos precisam ser validados).
+            self._progresso(78, "Gerando os CTs de transferência ATH dos cenários do EEP...")
+            self.gerar_cts_transferencia()
         if not self.tipo_a:
             return {
                 "casos_teste": self.casos_teste,

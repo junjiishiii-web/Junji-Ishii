@@ -3,7 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
-    numero: '2.20',
+    numero: '2.28',
+    data: '20/10/2026',
+    itens: [
+      'Projeto COM navegação alterada na SPEC e tabela de cenários/targets de transferência no EEP: além dos CTs de navegação do projeto, cada cenário/target ganha o seu CT de transferência ATH (todos os targets são validados). Antes só saíam os CTs de navegação (ex.: 9 CTs, sem cobrir os 22 targets).',
+    ],
+  },
+  {
+    numero: '2.27',
     data: '20/10/2026',
     itens: [
       'Projeto de transferência detectado automaticamente: se o EEP traz a tabela de cenários com IDs/targets e o projeto não aparece no versionamento da SPEC, a modelagem vira de TRANSFERÊNCIA (1 CT por cenário, todos os targets) mesmo com o seletor em "Alteração de SPEC". Antes saíam só alguns CTs, pelo modo por IVR.',
@@ -11,7 +18,7 @@ window.MODELER_VERSOES = [
     ],
   },
   {
-    numero: '2.19',
+    numero: '2.26',
     data: '20/10/2026',
     itens: [
       'Transferência Pura (projeto sem alteração de navegação): lê a tabela de cenários com TARGET/VDN/ID de transferência do EEP (PDF, docx ou xlsx) e gera 1 CT por cenário, percorrendo a SPEC (que serve só de base de navegação) pelo caminho mais fácil até a transferência ATH e validando o ID esperado. Resumo no padrão do Jira ("Dado Ind.Atend.101 do Grupo 1…, Quando … na transferencia para ATH, Então é direcionado para taxonomia 2730835") e último step "Encerrar a chamada e validar o target". O IVR do projeto não precisa estar no versionamento da SPEC.',
