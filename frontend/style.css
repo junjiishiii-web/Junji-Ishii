@@ -820,3 +820,12 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 .conf-ct-fixo small { display: block; color: #666; font-size: 11px; margin-top: 2px; }
 .conf-toast { position: fixed; right: 20px; bottom: 20px; z-index: 2100; background: #245C10; color: #fff; font-size: 13px; font-weight: 600; padding: 10px 16px; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
 @media (max-width: 600px) { .conf-modal { padding: 0; } .conf-modal-janela { height: 100%; border-radius: 0; } }
+.conf-auto { background: var(--clr-white); border: 1px solid var(--clr-blue-light); border-left: 4px solid var(--clr-navy); border-radius: var(--radius-sm); padding: 12px 14px; margin: 0 0 12px; }
+.conf-auto-linha { display: grid; grid-template-columns: minmax(140px, 180px) minmax(160px, 1fr) auto; gap: 10px; align-items: end; }
+.conf-auto-btn { white-space: nowrap; height: 34px; }
+.conf-auto-pasta { font-size: 12px; color: #555; margin-top: 8px; line-height: 1.5; }
+.conf-auto-pasta code { font-size: 11px; color: var(--clr-navy); }
+.conf-auto-status { font-size: 12px; margin-top: 8px; padding: 7px 10px; background: #F4F7FB; border-radius: var(--radius-sm); }
+.conf-manual { margin: 0 0 12px; font-size: 12px; }
+.conf-manual summary { cursor: pointer; font-weight: 600; color: var(--clr-navy); margin-bottom: 8px; }
+@media (max-width: 600px) { .conf-auto-linha { grid-template-columns: 1fr; } }

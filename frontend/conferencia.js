@@ -166,11 +166,14 @@ function renderizarConferencia() {
   }
 
   if (tipo === 'ura_rogue') {
-    const grafana = _autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal';
+    const grafana = (_autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal').replace(/\/+$/, '');
+    const finder = (/^https?:\/\//.test(_autoValor('ura_rogue', 'grafana_painel'))
+      ? _autoValor('ura_rogue', 'grafana_painel')
+      : `${grafana}/d/OBHSegzGK/conversation-finder?orgId=1`).replace(/[?&](from|to)=[^&]*/g, '') + '&from=now-3h&to=now';
     raiz.innerHTML = `
       <p class="bi-nota">Faça a ligação do CT, pegue o <strong>trace</strong> da conversa no Grafana e carregue o JSON aqui. A ferramenta lê os estados, os SPs (transição e prompt) e os prompts tocados e confere com o esperado do CT.</p>
       <div class="conf-caminho"><strong>Como pegar o trace (na VPN):</strong>
-        <span>1. Abra o <em>Conversation Finder</em> em <code>${escHtml(grafana)}</code> e ache a ligação pelo <strong>From</strong> (ANI) e horário.</span>
+        <span>1. <a href="${escHtml(finder)}" target="_blank" rel="noopener">Abrir o Conversation Finder (últimas 3 horas) ↗</a> e ache a ligação pelo <strong>From</strong> (ANI) e horário.</span>
         <span>2. Clique no <strong>ConversationId</strong> para abrir o trace (Explore → Jaeger).</span>
         <span>3. No trace: <strong>Inspect → Data → Download</strong> (JSON) e carregue o arquivo abaixo.</span></div>
       <div class="auto-grid conf-entrada">
@@ -183,16 +186,35 @@ function renderizarConferencia() {
     return;
   }
 
-  const caminhos = confCaminhosLog(_autoDestinoEscolhido('ura_legado'));
+  _confCarregarPastasSalvas();
+  const uraDestino = _autoDestinoEscolhido('ura_legado');
+  const caminhos = confCaminhosLog(uraDestino);
+  const pasta = uraDestino ? confPastas[uraDestino.id] : null;
+  const pastaData = uraDestino ? `\\\\${uraDestino.host || uraDestino.nome}\\lmcti\\Data` : '';
   raiz.innerHTML = `
-    <p class="bi-nota">Faça a ligação do CT e carregue os <strong>2 logs</strong> da URA do mesmo dia, node e canal: o <strong>Log URA</strong> (URADebug — SPs, prompts e dígitos) e o <strong>Log Integração</strong> (IntegracaoDebug — chamadas às APIs). A ferramenta acha a sua chamada (pelo ANI e horário) e confere os SPs e prompts esperados.</p>
+    <p class="bi-nota">Faça a ligação do CT e clique em <strong>Buscar minha chamada</strong>: a ferramenta abre a pasta da URA, acha a sua chamada pelo ANI (em todos os canais do dia) e carrega os <strong>2 logs</strong> — Log URA (SPs, prompts, dígitos) e Log Integração (APIs). Precisa estar na VPN e usar Chrome ou Edge.</p>
+    <div class="auto-grid conf-entrada">${seletorCt}</div>
+    ${uraDestino ? `<div class="conf-auto">
+        <div class="conf-auto-linha">
+          <label class="auto-campo"><span>Dia da ligação</span>
+            <input type="date" class="auto-input" id="confDia" value="${escHtml(confEstado.dia || _confHojeIso())}" onchange="confEstado.dia = this.value" /></label>
+          <label class="auto-campo"><span>ANI que ligou</span>
+            <input type="text" class="auto-input" id="confAni" value="${escHtml(confEstado.aniBusca || _autoValor('ura_legado', 'ani'))}" placeholder="ex.: 11948049798" oninput="confEstado.aniBusca = this.value" /></label>
+          <button class="btn-export-pdf conf-auto-btn" onclick="confBuscarNaPasta()">📁 Buscar minha chamada</button>
+        </div>
+        <div class="conf-auto-pasta">${pasta
+          ? `Pasta autorizada: <strong>${escHtml(pasta.name)}</strong> de ${escHtml(uraDestino.nome)} · <a href="#" onclick="confTrocarPasta(); return false;">trocar pasta</a>`
+          : `Na primeira busca o navegador pede a pasta: cole <code>${escHtml(pastaData)}</code> na barra de endereço da janela, abra e clique em <em>Selecionar pasta</em> → <em>Permitir</em>. Ela fica lembrada para as próximas.`}</div>
+        ${confEstado.statusBusca ? `<div class="conf-auto-status">${confEstado.statusBusca}</div>` : ''}
+      </div>` : `<p class="auto-vazio">Escolha a URA na aba Automação para buscar os logs.</p>`}
+    <details class="conf-manual" ${confEstado.ura && !confEstado.viaPasta ? 'open' : ''}>
+    <summary>Carregar os logs manualmente</summary>
     ${caminhos ? `<div class="conf-caminho"><strong>Onde estão os logs (hoje):</strong>
         <span>Log URA:</span><code>${escHtml(caminhos.ura)}</code>
         <span>Log Integração:</span><code>${escHtml(caminhos.integracao)}</code>
         <span>&lt;canal&gt; = canal em que a chamada caiu (o número no fim do nome do arquivo). Os dois arquivos têm o mesmo final (data_node_canal).</span></div>`
-      : `<p class="auto-vazio">Escolha a URA acima para ver onde ficam os logs.</p>`}
+      : ''}
     <div class="auto-grid conf-entrada">
-      ${seletorCt}
       <label class="auto-campo"><span>① Log URA (URADebug_….txt)</span>
         <input type="file" class="auto-input" accept=".txt,.log" onchange="confCarregarLog(this, 'ura')" />
         ${confEstado.ura ? `<em class="conf-arq-ok">✓ ${escHtml(confEstado.ura.nome)} — ${confEstado.chamadas.length} chamada(s)</em>` : ''}</label>
@@ -200,11 +222,12 @@ function renderizarConferencia() {
         <input type="file" class="auto-input" accept=".txt,.log" onchange="confCarregarLog(this, 'integracao')" />
         ${confEstado.integracao ? `<em class="conf-arq-ok">✓ ${escHtml(confEstado.integracao.nome)}</em>` : ''}</label>
     </div>
+    </details>
     ${_confAvisoArquivos()}
     ${confEstado.chamadas.length ? `
       <label class="auto-campo"><span>Chamada</span>
         <select class="auto-input" onchange="confEscolherChamada(+this.value)">
-          ${confEstado.chamadas.map((c, i) => `<option value="${i}" ${i === confEstado.idx ? 'selected' : ''}>${escHtml(`${c.inicio}–${c.fim} · ANI ${c.ani || '?'} · DNIS ${c.dnis || '?'} · ${c.sps.length} SP(s)${c.transferencia ? ' · → ' + c.transferencia.destino : ''} · transação ${+c.transacao}`)}</option>`).join('')}
+          ${confEstado.chamadas.map((c, i) => `<option value="${i}" ${i === confEstado.idx ? 'selected' : ''}>${escHtml(`${c.inicio}–${c.fim} · ANI ${c.ani || '?'} · DNIS ${c.dnis || '?'} · ${c.sps.length} SP(s)${c.transferencia ? ' · → ' + c.transferencia.destino : ''} · canal ${+c.canal} · transação ${+c.transacao}`)}</option>`).join('')}
         </select></label>` : ''}
     <div id="confResultado">${ch && confEstado.ctId ? _confHtmlResultado(ch) : ''}</div>`;
 }
@@ -252,6 +275,9 @@ function confEscolherCt(ctId) {
 }
 function confEscolherChamada(i) {
   confEstado.idx = i;
+  // Busca na pasta: cada chamada traz os seus 2 arquivos (podem ser de canais diferentes).
+  const ch = confEstado.chamadas[i];
+  if (ch && ch._arquivos) { confEstado.ura = ch._arquivos.ura; confEstado.integracao = ch._arquivos.integracao; }
   renderizarConferencia();
 }
 
@@ -287,6 +313,8 @@ async function confCarregarLog(input, qual) {
   if (!chamadas.length) { alert('Não encontrei chamadas neste arquivo. Confira se é o URADebug da URA Legado.'); input.value = ''; return; }
   confEstado.ura = lido;
   confEstado.chamadas = chamadas;
+  confEstado.viaPasta = false;
+  confEstado.statusBusca = '';
   // A chamada do teste: a última com o ANI configurado (ou a última do arquivo).
   const ani = _autoValor('ura_legado', 'ani');
   let idx = -1;
@@ -502,4 +530,155 @@ async function confCarregarTrace(input) {
   confEstado.chamadas = [ch];
   confEstado.idx = 0;
   renderizarConferencia();
+}
+
+/* ─── Etapa 3 (sem instalar nada): busca automática na pasta da URA Legado ───
+   Chrome/Edge leem uma pasta que o QA autoriza uma vez (File System Access API).
+   O QA escolhe \\URA\lmcti\Data; a ferramenta abre UraLog\AAAA\MM\DD, lê os
+   URADebug do node da URA (todos os canais), acha as chamadas do ANI e carrega o
+   IntegracaoDebug do mesmo canal. A autorização fica guardada neste navegador
+   (o navegador pode pedir "Permitir" de novo em outra sessão). */
+
+let confPastas = {};             // uraId → FileSystemDirectoryHandle autorizado
+let _confPastasLidas = false;
+
+function _confHojeIso() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// As pastas autorizadas antes ficam no IndexedDB; carrega uma vez e redesenha.
+async function _confCarregarPastasSalvas() {
+  if (_confPastasLidas) return;
+  _confPastasLidas = true;
+  try {
+    for (const u of AUTO_DESTINOS.ura_legado.itens) {
+      const h = await dbGet('estado', 'pasta_ura_' + u.id);
+      if (h) confPastas[u.id] = h;
+    }
+    if (Object.keys(confPastas).length) renderizarConferencia();
+  } catch (e) { /* sem IndexedDB: pede a pasta a cada sessão */ }
+}
+
+async function confTrocarPasta() {
+  const ura = _autoDestinoEscolhido('ura_legado');
+  if (!ura) return;
+  delete confPastas[ura.id];
+  try { await dbDelete('estado', 'pasta_ura_' + ura.id); } catch (e) {}
+  confEstado.statusBusca = '';
+  renderizarConferencia();
+}
+
+function _confStatus(html) {
+  confEstado.statusBusca = html;
+  const el = document.querySelector(`#${confModalCt ? 'confModalCorpo' : 'autoConferencia'} .conf-auto-status`);
+  if (el) el.innerHTML = html; else renderizarConferencia();
+}
+
+async function _confSubpasta(dir, nome) {
+  try { return await dir.getDirectoryHandle(nome); } catch (e) { return null; }
+}
+
+// Aceita a pasta Data, a lmcti ou a raiz do compartilhamento.
+async function _confAcharData(raiz) {
+  if (await _confSubpasta(raiz, 'UraLog')) return raiz;
+  const data = await _confSubpasta(raiz, 'Data');
+  if (data && await _confSubpasta(data, 'UraLog')) return data;
+  const lmcti = await _confSubpasta(raiz, 'lmcti');
+  const data2 = lmcti && await _confSubpasta(lmcti, 'Data');
+  if (data2 && await _confSubpasta(data2, 'UraLog')) return data2;
+  return null;
+}
+
+async function _confAbrirCaminho(dir, partes) {
+  for (const p of partes) { dir = await _confSubpasta(dir, p); if (!dir) return null; }
+  return dir;
+}
+
+async function _confLerTexto(fileHandle) {
+  const arq = await fileHandle.getFile();
+  return new TextDecoder('windows-1252').decode(await arq.arrayBuffer());
+}
+
+async function confBuscarNaPasta() {
+  const ura = _autoDestinoEscolhido('ura_legado');
+  if (!ura) return;
+  if (!window.showDirectoryPicker) {
+    _confStatus('⚠️ Este navegador não deixa abrir pastas. Use o <strong>Chrome</strong> ou o <strong>Edge</strong>, ou carregue os logs manualmente abaixo.');
+    return;
+  }
+  const aniEl = document.querySelector(`#${confModalCt ? 'confModalCorpo' : 'autoConferencia'} #confAni`);
+  const diaEl = document.querySelector(`#${confModalCt ? 'confModalCorpo' : 'autoConferencia'} #confDia`);
+  const ani = _confDigitos(aniEl ? aniEl.value : '');
+  const dia = (diaEl && diaEl.value) || _confHojeIso();
+  confEstado.aniBusca = aniEl ? aniEl.value : '';
+  confEstado.dia = dia;
+  if (ani.length < 8) { _confStatus('⚠️ Informe o ANI que fez a ligação (DDD + número).'); return; }
+
+  // 1. Pasta autorizada (pede na primeira vez; a permissão exige o clique do botão).
+  let raiz = confPastas[ura.id];
+  try {
+    if (!raiz) raiz = await window.showDirectoryPicker({ id: 'ura_' + ura.node, mode: 'read' });
+    if ((await raiz.queryPermission({ mode: 'read' })) !== 'granted'
+        && (await raiz.requestPermission({ mode: 'read' })) !== 'granted') {
+      _confStatus('⚠️ Sem permissão para ler a pasta. Clique de novo e escolha <em>Permitir</em>.');
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // fechou a janela de escolha
+    _confStatus(`⚠️ Não foi possível abrir a pasta (${escHtml(e && e.message || e)}). Confira a VPN ou carregue os logs manualmente.`);
+    return;
+  }
+  const data = await _confAcharData(raiz);
+  if (!data) {
+    _confStatus(`⚠️ A pasta escolhida (<strong>${escHtml(raiz.name)}</strong>) não tem <code>UraLog</code>. Escolha <code>\\\\${escHtml(ura.host || ura.nome)}\\lmcti\\Data</code> — <a href="#" onclick="confTrocarPasta(); return false;">trocar pasta</a>.`);
+    return;
+  }
+  confPastas[ura.id] = raiz;
+  try { await dbPut('estado', raiz, 'pasta_ura_' + ura.id); } catch (e) {}
+
+  // 2. Arquivos do dia deste node (um por canal).
+  const [a, m, d] = dia.split('-');
+  const dirUra = await _confAbrirCaminho(data, ['UraLog', a, m, d]);
+  if (!dirUra) { _confStatus(`⚠️ Não há logs em <code>UraLog\\${a}\\${m}\\${d}</code> nesta URA. Confira o dia da ligação.`); return; }
+  const padrao = new RegExp(`^URADebug_${a}-${m}-${d}_${ura.node}_(\\d+)\\.txt$`, 'i');
+  const arquivos = [];
+  for await (const [nome, h] of dirUra.entries()) if (h.kind === 'file' && padrao.test(nome)) arquivos.push([nome, h]);
+  if (!arquivos.length) { _confStatus(`⚠️ Nenhum URADebug do node ${escHtml(ura.node)} em ${d}/${m}/${a}.`); return; }
+
+  // 3. Procura o ANI em todos os canais (filtro rápido pelo texto antes de separar as chamadas).
+  const achadas = [];
+  const fimAni = ani.slice(-8);
+  let lidos = 0;
+  for (const [nome, h] of arquivos) {
+    _confStatus(`⏳ Procurando o ANI ${escHtml(ani)} — ${++lidos} de ${arquivos.length} arquivo(s)…`);
+    let texto;
+    try { texto = await _confLerTexto(h); } catch (e) { continue; }
+    if (!texto.includes(fimAni)) continue;
+    const doAni = confSepararChamadas(texto).filter(c => _confAniBate(c.ani, ani));
+    if (!doAni.length) continue;
+    const arqUra = { nome, texto };
+    let arqInteg = null;
+    const sufixo = _confSufixo(nome);
+    const dirInt = await _confAbrirCaminho(data, ['IntegracaoLog', a, m, d]);
+    if (dirInt && sufixo) {
+      try {
+        const nomeInt = `IntegracaoDebug_${sufixo}.txt`;
+        arqInteg = { nome: nomeInt, texto: await _confLerTexto(await dirInt.getFileHandle(nomeInt)) };
+      } catch (e) { arqInteg = null; }
+    }
+    doAni.forEach(c => { c._arquivos = { ura: arqUra, integracao: arqInteg }; achadas.push(c); });
+  }
+  if (!achadas.length) {
+    _confStatus(`⚠️ Nenhuma chamada do ANI <strong>${escHtml(ani)}</strong> em ${arquivos.length} arquivo(s) de ${d}/${m}/${a} (${escHtml(ura.nome)}). Confira o ANI, o dia e se a ligação caiu nesta URA.`);
+    return;
+  }
+  // A mais recente primeiro: em geral é a ligação que acabou de ser feita.
+  achadas.sort((x, y) => y.inicio.localeCompare(x.inicio));
+  confEstado.chamadas = achadas;
+  confEstado.viaPasta = true;
+  confEstado.statusBusca = `✓ ${achadas.length} chamada(s) do ANI ${escHtml(ani)} em ${d}/${m}/${a}` +
+    ` (canal ${[...new Set(achadas.map(c => +c.canal))].join(', ')}). Mostrando a mais recente; troque na lista se precisar.`;
+  confEscolherChamada(0);
 }

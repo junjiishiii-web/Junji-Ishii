@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.23" />
-  <script src="versao.js?v=2.23"></script>
-  <script src="automacao.js?v=2.23"></script>
-  <script src="conferencia.js?v=2.23"></script>
+  <link rel="stylesheet" href="style.css?v=2.24" />
+  <script src="versao.js?v=2.24"></script>
+  <script src="automacao.js?v=2.24"></script>
+  <script src="conferencia.js?v=2.24"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -382,6 +382,7 @@
             <li><strong>Dados de execução</strong>: número a discar, origem (Avaya ou celular), ANI, servidor e diretório dos logs ou URL do Grafana, e um campo livre para as outras informações importantes. Os campos com <strong>*</strong> são obrigatórios.</li>
             <li><strong>CTs do roteiro</strong>: todos vêm marcados; use os filtros (novos, regressivos, pendentes) para escolher.</li>
             <li><strong>⬇️ Gerar roteiro de automação</strong>: baixa um .json com a configuração e, para cada CT, os steps, o DTMF sugerido, os prompts e os SPs esperados.</li>
+            <li><strong>Buscar minha chamada (URA Legado, na VPN, Chrome ou Edge)</strong>: informe o dia e o ANI e clique em <em>📁 Buscar minha chamada</em>. Na primeira vez o navegador pede a pasta: cole <code>\\URA\lmcti\Data</code> (ex.: <code>\\BHZNETAECUR98\lmcti\Data</code>) na barra de endereço da janela, clique em <em>Selecionar pasta</em> e em <em>Permitir</em>. A pasta fica lembrada por URA; depois a ferramenta acha a chamada do ANI em todos os canais do dia e já carrega os 2 logs. Use <em>trocar pasta</em> se escolheu a pasta errada.</li>
             <li><strong>Conferir evidência (URA Legado)</strong>: faça a ligação do CT, pegue os <strong>2 logs</strong> da chamada e carregue cada um no seu campo: ① <strong>Log URA</strong> <code>\\URA\lmcti\Data\UraLog\AAAA\MM\DD\URADebug_AAAA-MM-DD_node_canal.txt</code> e ② <strong>Log Integração</strong> <code>\\URA\lmcti\Data\IntegracaoLog\AAAA\MM\DD\IntegracaoDebug_AAAA-MM-DD_node_canal.txt</code> (mesmo final data_node_canal; a ferramenta avisa se não baterem). A ferramenta acha a sua chamada pelo ANI (dá para trocar na lista), mostra quais SPs esperados foram marcados (✓/✗), quais prompts tocaram e sugere OK ou Não OK. <em>Aplicar no CT</em> grava o status e anexa o trecho só daquela chamada como evidência, com os tokens das APIs mascarados.</li>
             <li><strong>Conferir evidência (URA ROGUE)</strong>: depois da ligação, no Grafana abra o <em>Conversation Finder</em>, ache a conversa pelo <strong>From</strong> (ANI) e horário, clique no <strong>ConversationId</strong> e, no trace, use <strong>Inspect → Data → Download</strong>. Carregue o .json: a ferramenta mostra os SPs de transição e de prompt, os prompts tocados, as saídas escolhidas e a transferência, confere com o CT e sugere OK ou Não OK. <em>Aplicar no CT</em> anexa o resumo da jornada e o próprio trace.</li>
           </ol>

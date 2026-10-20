@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.24',
+    data: '20/10/2026',
+    itens: [
+      'Automação (etapa 3, sem instalar nada) — URA Legado: botão 📁 Buscar minha chamada. Na primeira vez o Chrome/Edge pede a pasta \\\\URA\\lmcti\\Data (fica lembrada); depois a ferramenta abre UraLog\\AAAA\\MM\\DD sozinha, procura o ANI em todos os canais do dia, carrega o Log URA e o Log Integração do mesmo canal e mostra a chamada mais recente já conferida. Precisa estar na VPN. O carregamento manual continua disponível.',
+      'ROGUE: link direto para o Conversation Finder das últimas 3 horas.',
+    ],
+  },
+  {
     numero: '2.23',
     data: '20/10/2026',
     itens: [
