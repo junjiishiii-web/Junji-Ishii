@@ -212,7 +212,7 @@ function renderizarConferencia() {
           <label class="auto-campo"><span>Dia da ligação</span>
             <input type="date" class="auto-input" id="confDia" value="${escHtml(confEstado.dia || _confHojeIso())}" onchange="confEstado.dia = this.value" /></label>
           <label class="auto-campo"><span>ANI que ligou</span>
-            <input type="text" class="auto-input" id="confAni" value="${escHtml(confEstado.aniBusca || _autoValor('ura_legado', 'ani'))}" placeholder="ex.: 11948049798" oninput="confEstado.aniBusca = this.value" /></label>
+            <input type="text" class="auto-input" id="confAni" value="${escHtml(confEstado.aniBusca || _autoValor('ura_legado', 'ani'))}" placeholder="ex.: 11948049798" oninput="confEstado.aniBusca = this.value; autoAlterarCampo('ani', this.value)" /></label>
           <button class="btn-export-pdf conf-auto-btn" onclick="confBuscarNaPasta()">📁 Buscar minha chamada</button>
         </div>
         <div class="conf-auto-pasta">${pasta

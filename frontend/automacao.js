@@ -68,10 +68,7 @@ function _autoDestinoEscolhido(tipo) {
 // Campos por grupo. "tipos" = em quais tecnologias o campo aparece; "obrigatorio" = conta para o "pronto para gerar".
 const AUTO_CAMPOS = [
   // Chamada / conversa
-  { id: 'ambiente', grupo: 'geral', rotulo: 'Ambiente', tipo: 'select', opcoes: ['Homologação', 'Desenvolvimento', 'Pré-produção', 'Produção (piloto)'], tipos: '*', obrigatorio: true },
-  { id: 'origem', grupo: 'geral', rotulo: 'Origem da ligação', tipo: 'select', opcoes: ['Avaya (ramal)', 'Celular'], tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
   { id: 'numero_destino', grupo: 'geral', rotulo: 'Número a discar', dica: 'preenchido ao escolher a URA / esteira', tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
-  { id: 'ani', grupo: 'geral', rotulo: 'Número de origem (ANI / ramal)', dica: 'número que vai aparecer na URA', tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
   { id: 'bot_numero', grupo: 'geral', rotulo: 'Número do bot no WhatsApp', dica: 'ex.: +55 11 9xxxx-xxxx', tipos: ['chatbot'], obrigatorio: true },
   { id: 'bot_origem', grupo: 'geral', rotulo: 'Número de teste que conversa', tipos: ['chatbot'], obrigatorio: true },
   { id: 'bot_canal', grupo: 'geral', rotulo: 'Canal', tipo: 'select', opcoes: ['WhatsApp Web', 'WhatsApp no celular', 'API / simulador web'], tipos: ['chatbot'], obrigatorio: true },

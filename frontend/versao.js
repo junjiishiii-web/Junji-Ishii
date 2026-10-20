@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.32',
+    data: '20/10/2026',
+    itens: [
+      'Automação: removidos os campos Ambiente, Origem da ligação e Número de origem (ANI) da configuração. O ANI fica só na conferência ("ANI que ligou"), lembrado depois da primeira vez.',
+    ],
+  },
+  {
     numero: '2.31',
     data: '20/10/2026',
     itens: [
