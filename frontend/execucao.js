@@ -120,10 +120,12 @@ function _execMostrarCt() {
       <div>
         <div class="exec-g-rotulo">1. Ligue para ${escHtml(destino.nome)}</div>
         <div class="exec-g-numero">${escHtml(numero)}</div>
-        <small>Digite no Avaya: <code>${escHtml(digitos)}</code>${destino.codigo ? ` · ao atender, digite o código da esteira <code>${escHtml(destino.codigo)}</code>` : ''}</small>
+        <small>Avaya: <code>${escHtml(digitos)}</code>${destino.codigo ? ` · ao atender, código da esteira <code>${escHtml(destino.codigo)}</code>` : ''}
+          · <a href="#" onclick="execCopiarNumero('${escHtml(digitos)}'); return false;" title="Para ligar à mão: copia o número para colar no one-X">copiar número</a></small>
+        <div class="exec-g-dica" id="execLigarStatus"></div>
       </div>
-      <button class="btn-export-pdf exec-g-btn-ligar" onclick="execCopiarNumero('${escHtml(digitos)}')"
-        title="Copia o número; no Avaya one-X clique em “Insira um nome ou número”, Ctrl+V e Enter">📋 Copiar número</button>
+      <button class="btn-export-pdf exec-g-btn-ligar" id="btnLigarAuto" onclick="execLigarAutomatico('${escHtml(ctId)}')"
+        title="O executor liga pelo Avaya one-X, digita os passos, desliga e confere a evidência deste CT">📞 Ligar e executar</button>
     </div>
 
     <div class="exec-g-rotulo">2. Siga os passos (teclas e o que deve tocar)</div>
@@ -139,6 +141,33 @@ function _execMostrarCt() {
       ${total > 1 && execPos > 0 ? `<button class="btn-export-pdf exec-g-sec" onclick="execVoltar()">⏮ Anterior</button>` : ''}
       <button class="btn-export-pdf exec-g-sec" onclick="execEncerrar()">${total > 1 ? 'Pausar / encerrar' : 'Fechar'}</button>
     </div>`, `▶ Execução — ${ctId}`);
+}
+
+// "📞 Ligar e executar": a execução automática (execucao_auto.js) só deste CT. Sem o executor rodando,
+// explica como iniciar (a ligação à mão continua possível pelo "copiar número").
+async function execLigarAutomatico(ctId) {
+  const btn = document.getElementById('btnLigarAuto');
+  const st = document.getElementById('execLigarStatus');
+  if (btn) btn.disabled = true;
+  if (st) st.textContent = 'Procurando o executor nesta máquina…';
+  const ex = await execExecutorStatus();
+  if (!ex || !ex.onex_aberto || ex.ocupado) {
+    if (btn) btn.disabled = false;
+    if (st) st.innerHTML = !ex
+      ? '⚠️ O executor não está rodando nesta máquina. Na aba <strong>🤖 Automação</strong> → “Executor automático”, baixe e abra o <code>iniciar_executor.bat</code> (deixe a janela aberta) e clique de novo.'
+      : (!ex.onex_aberto ? '⚠️ Abra e faça login no <strong>Avaya one-X</strong> e clique de novo.'
+        : `⚠️ O executor está ocupado com ${escHtml(ex.ct_atual)}. Aguarde terminar.`);
+    return;
+  }
+  execAuto = { ativo: true, parar: false };
+  execFila = [ctId];
+  execPos = 0;
+  execInicio = new Date();
+  execAtivo = false;
+  await _execAutoUmCt(ctId);
+  execAuto.ativo = false;
+  execPos = 1;
+  _execResumo(false);
 }
 
 // O Avaya one-X não atende links tel: — o número vai para a área de transferência e o QA cola no one-X.

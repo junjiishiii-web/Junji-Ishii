@@ -3,11 +3,25 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
-    numero: '2.35',
+    numero: '2.37',
     data: '20/10/2026',
     itens: [
       'Projetos de transferência: cada CT agora segue um caminho da SPEC que respeita o cenário do EEP — crédito aprovado/reprovado, cliente/não cliente Claro Móvel e CEP cabeado/não cabeado (cablingtype) — tanto na transição final para a transferência quanto nos ramos do meio do caminho (antes o caminho pegava o ramo "mais fácil", ex.: "Crédito APROVADO" num cenário de crédito reprovado). Some o aviso ⚠️ Divergente do cenário nesses CTs.',
       'Entre caminhos equivalentes, prefere transferir sem passar por erro (max erro/silêncio/rejeição), salvo nos cenários de timeout. Se a SPEC não tiver o ramo do cenário, o CT continua no caminho padrão com o aviso "condições do cenário não localizadas na SPEC".',
+    ],
+  },
+  {
+    numero: '2.36',
+    data: '20/10/2026',
+    itens: [
+      'Execução de um CT: o botão 📞 Ligar e executar já inicia a execução automática só daquele CT pelo executor (liga pelo Avaya, digita os passos, desliga e confere a evidência). Sem o executor rodando, a tela explica como iniciá-lo; o "copiar número" continua disponível para ligar à mão.',
+    ],
+  },
+  {
+    numero: '2.35',
+    data: '20/10/2026',
+    itens: [
+      'Massa de Testes: o detalhamento da "Condição da massa" também aparece em modelagens salvas antes da 2.34 (montado a partir do cenário do EEP e dos passos do CT), sem precisar gerar de novo. Condições divergentes do cenário ficam em vermelho.',
     ],
   },
   {
