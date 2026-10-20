@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.22',
+    data: '20/10/2026',
+    itens: [
+      'Automação (etapa 2) — conferência do ROGUE: carregue o trace da conversa exportado do Grafana (Conversation Finder → ConversationId → Inspect → Data → Download). A ferramenta lê estados, SPs de transição e de prompt, prompts tocados, saídas escolhidas e transferência (inclusive CRN → TLV no mesmo trace), confere com o esperado do CT e sugere OK / Não OK. "Aplicar no CT" anexa o resumo da jornada e o JSON do trace como evidência.',
+    ],
+  },
+  {
     numero: '2.21',
     data: '20/10/2026',
     itens: [

@@ -1,4 +1,4 @@
-/* ─── Automação · Etapa 2: conferência de evidência (URA Legado) ───
+/* ─── Automação · Etapa 2: conferência de evidência (URA Legado e ROGUE) ───
    O QA liga manualmente e carrega o URADebug_*.txt (e, se quiser, o
    IntegracaoDebug_*.txt) do diretório da URA. A ferramenta separa as
    chamadas do arquivo, acha a chamada pelo ANI/horário e confere os SPs e
@@ -11,7 +11,7 @@
 
 const CONF_LINHA = /^\[(\d{2}\/\d{2}\/\d{4})\]\[(\d{2}:\d{2}:\d{2})\]\[[^\]]*\]\[([^\]]*)\]\[(\d+)\]\[(\d+)\]->(.*)$/;
 
-let confEstado = { ctId: '', ura: null, integracao: null, chamadas: [], idx: -1 };
+let confEstado = { tipo: '', ctId: '', ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
 
 function _confNovaChamada(data, hora, canal, transacao) {
   return {
@@ -87,9 +87,13 @@ function _confAniBate(aniLog, aniConfig) {
 
 function _confPromptBate(esperado, tocados) {
   const e = String(esperado).toLowerCase();
+  // Sem "_" e caixa: a SPEC escreve "MenuDesambiguaTLVCRN_INI", o ROGUE "CRN_IDX_NaoCliente_MenuDesambiguaTLVCRNIni".
+  const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const en = norm(e);
   return tocados.find(p => {
-    const t = p.id.toLowerCase();
-    return t === e || (e.length >= 4 && t.includes(e)) || (t.length >= 6 && e.includes(t));
+    const t = p.id.toLowerCase(), tn = norm(p.id);
+    return t === e || (e.length >= 4 && t.includes(e)) || (t.length >= 6 && e.includes(t))
+      || (en.length >= 6 && tn.includes(en));
   }) || null;
 }
 
@@ -131,17 +135,36 @@ function renderizarConferencia() {
   const raiz = document.getElementById('autoConferencia');
   if (!raiz) return;
   const tipo = autoConfig.tipo;
-  if (tipo !== 'ura_legado') {
-    raiz.innerHTML = tipo === 'ura_rogue'
-      ? `<p class="auto-vazio">Conferência automática do ROGUE (Grafana / Jaeger): em construção. Precisamos do export JSON de um trace para ler os SPs.</p>`
-      : '';
-    return;
-  }
+  // Trocou de tecnologia: o que foi carregado para a outra não vale aqui.
+  if (confEstado.tipo !== tipo) confEstado = { tipo, ctId: confEstado.ctId, ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
+  if (tipo !== 'ura_legado' && tipo !== 'ura_rogue') { raiz.innerHTML = ''; return; }
   const casos = _autoCasosSelecionados();
   if (!casos.find(c => c.ct_id === confEstado.ctId)) confEstado.ctId = casos.length ? casos[0].ct_id : '';
-  const caminhos = confCaminhosLog(_autoDestinoEscolhido('ura_legado'));
   const ch = confEstado.chamadas[confEstado.idx];
+  const seletorCt = `<label class="auto-campo"><span>CT executado</span>
+        <select class="auto-input" onchange="confEscolherCt(this.value)">
+          ${casos.map(c => `<option value="${escHtml(c.ct_id)}" ${c.ct_id === confEstado.ctId ? 'selected' : ''}>${escHtml(c.ct_id)} — ${escHtml(c.estado)}</option>`).join('')}
+        </select></label>`;
 
+  if (tipo === 'ura_rogue') {
+    const grafana = _autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal';
+    raiz.innerHTML = `
+      <p class="bi-nota">Faça a ligação do CT, pegue o <strong>trace</strong> da conversa no Grafana e carregue o JSON aqui. A ferramenta lê os estados, os SPs (transição e prompt) e os prompts tocados e confere com o esperado do CT.</p>
+      <div class="conf-caminho"><strong>Como pegar o trace (na VPN):</strong>
+        <span>1. Abra o <em>Conversation Finder</em> em <code>${escHtml(grafana)}</code> e ache a ligação pelo <strong>From</strong> (ANI) e horário.</span>
+        <span>2. Clique no <strong>ConversationId</strong> para abrir o trace (Explore → Jaeger).</span>
+        <span>3. No trace: <strong>Inspect → Data → Download</strong> (JSON) e carregue o arquivo abaixo.</span></div>
+      <div class="auto-grid conf-entrada">
+        ${seletorCt}
+        <label class="auto-campo"><span>Trace da conversa (.json)</span>
+          <input type="file" class="auto-input" accept=".json" onchange="confCarregarTrace(this)" />
+          ${confEstado.trace ? `<em class="conf-arq-ok">✓ ${escHtml(confEstado.trace.nome)}</em>` : ''}</label>
+      </div>
+      <div id="confResultado">${ch && confEstado.ctId ? _confHtmlResultado(ch) : ''}</div>`;
+    return;
+  }
+
+  const caminhos = confCaminhosLog(_autoDestinoEscolhido('ura_legado'));
   raiz.innerHTML = `
     <p class="bi-nota">Faça a ligação do CT e carregue os <strong>2 logs</strong> da URA do mesmo dia, node e canal: o <strong>Log URA</strong> (URADebug — SPs, prompts e dígitos) e o <strong>Log Integração</strong> (IntegracaoDebug — chamadas às APIs). A ferramenta acha a sua chamada (pelo ANI e horário) e confere os SPs e prompts esperados.</p>
     ${caminhos ? `<div class="conf-caminho"><strong>Onde estão os logs (hoje):</strong>
@@ -150,10 +173,7 @@ function renderizarConferencia() {
         <span>&lt;canal&gt; = canal em que a chamada caiu (o número no fim do nome do arquivo). Os dois arquivos têm o mesmo final (data_node_canal).</span></div>`
       : `<p class="auto-vazio">Escolha a URA acima para ver onde ficam os logs.</p>`}
     <div class="auto-grid conf-entrada">
-      <label class="auto-campo"><span>CT executado</span>
-        <select class="auto-input" onchange="confEscolherCt(this.value)">
-          ${casos.map(c => `<option value="${escHtml(c.ct_id)}" ${c.ct_id === confEstado.ctId ? 'selected' : ''}>${escHtml(c.ct_id)} — ${escHtml(c.estado)}</option>`).join('')}
-        </select></label>
+      ${seletorCt}
       <label class="auto-campo"><span>① Log URA (URADebug_….txt)</span>
         <input type="file" class="auto-input" accept=".txt,.log" onchange="confCarregarLog(this, 'ura')" />
         ${confEstado.ura ? `<em class="conf-arq-ok">✓ ${escHtml(confEstado.ura.nome)} — ${confEstado.chamadas.length} chamada(s)</em>` : ''}</label>
@@ -193,10 +213,11 @@ function _confHtmlResultado(ch) {
       <div><h5>Prompts esperados</h5>
         <table class="data-table conf-tabela"><tbody>${r.prompts.map(linhaPrompt).join('') || '<tr><td colspan="3">Sem prompt no CT.</td></tr>'}</tbody></table></div>
     </div>
-    <details class="conf-detalhe"><summary>O que aconteceu na chamada (${ch.sps.length} SPs, ${ch.prompts.length} prompts, ${ch.digitos.length} digitações)</summary>
+    ${ch.resumo ? `<p class="conf-arquivos">${escHtml(ch.resumo)}</p>` : ''}
+    <details class="conf-detalhe"><summary>O que aconteceu na chamada (${ch.sps.length} SPs, ${ch.prompts.length} prompts, ${ch.digitos.length} ${ch.origem === 'rogue' ? 'saídas escolhidas' : 'digitações'})</summary>
       <table class="data-table conf-tabela"><thead><tr><th>Hora</th><th>Estado</th><th>Evento</th></tr></thead><tbody>
         ${[...ch.prompts.map(p => [p.hora, p.estado, '🔊 ' + p.id]),
-           ...ch.digitos.map(d => [d.hora, d.estado, '⌨️ digitou ' + d.valor]),
+           ...ch.digitos.map(d => [d.hora, d.estado, d.rotulo || '⌨️ digitou ' + d.valor]),
            ...ch.sps.map(s => [s.hora, s.estado, '📍 SP ' + s.codigo]),
            ...(ch.transferencia ? [[ch.transferencia.hora, 'Transferência', `↪ ${ch.transferencia.destino} ${ch.transferencia.prompt}`]] : [])]
           .sort((a, b) => a[0].localeCompare(b[0]))
@@ -273,11 +294,17 @@ async function confAplicar() {
   const caso = (cacheModelagem.casos_teste || []).find(c => c.ct_id === confEstado.ctId);
   if (!ch || !caso) return;
   const r = confComparar(_autoCasoParaRoteiro(caso), ch);
+  const rogue = ch.origem === 'rogue';
+  const origem = rogue
+    ? [`Chamada (ROGUE): ${ch.data} ${ch.inicio}–${ch.fim} | ANI ${ch.ani} | DNIS ${ch.dnis} | ${ch.node}`,
+       `Trace          : ${ch.traceId} (${confEstado.trace.nome})`,
+       `Conversation   : ${ch.transacao}`]
+    : [`Chamada: ${ch.data} ${ch.inicio}–${ch.fim} | ANI ${ch.ani} | DNIS ${ch.dnis} | ${ch.node} | canal ${ch.canal} | transação ${+ch.transacao}`,
+       `Log URA        : ${ch.logUra || confEstado.ura.nome}`,
+       `Log Integração : ${ch.logIntegracao || (confEstado.integracao ? confEstado.integracao.nome : '(não carregado)')}`];
   const resumo = [
     `Conferência automática — ${caso.ct_id}`,
-    `Chamada: ${ch.data} ${ch.inicio}–${ch.fim} | ANI ${ch.ani} | DNIS ${ch.dnis} | ${ch.node} | canal ${ch.canal} | transação ${+ch.transacao}`,
-    `Log URA        : ${ch.logUra || confEstado.ura.nome}`,
-    `Log Integração : ${ch.logIntegracao || (confEstado.integracao ? confEstado.integracao.nome : '(não carregado)')}`,
+    ...origem,
     `Resultado sugerido: ${r.sugestao.toUpperCase()} — ${r.motivo}`,
     '',
     'SPs esperados:',
@@ -287,18 +314,144 @@ async function confAplicar() {
     `SPs marcados na chamada: ${ch.sps.map(s => s.codigo).join(', ')}`,
     ch.transferencia ? `Transferência: ${ch.transferencia.destino} (${ch.transferencia.prompt})` : 'Sem transferência registrada',
     '',
-    '================ LOG DA URA (só esta chamada) ================',
+    rogue ? '================ JORNADA NO ROGUE (trace) ================' : '================ LOG DA URA (só esta chamada) ================',
     ch.linhas.join('\n'),
   ];
-  const integ = _confTrechoIntegracao(ch);
+  const integ = rogue ? '' : _confTrechoIntegracao(ch);
   if (integ) resumo.push('', '================ LOG DE INTEGRAÇÃO (só esta chamada) ================', integ);
   const texto = confMascarar(resumo.join('\n'));
-  const arquivo = new File([texto], `Log_URA_${caso.ct_id}_${ch.data.split('/').reverse().join('')}_${ch.inicio.replace(/:/g, '')}.txt`, { type: 'text/plain' });
+  const carimbo = `${ch.data.split('/').reverse().join('')}_${ch.inicio.replace(/:/g, '')}`;
+  const arquivos = [new File([texto], `${rogue ? 'Rogue' : 'Log_URA'}_${caso.ct_id}_${carimbo}.txt`, { type: 'text/plain' })];
+  // ROGUE: o trace original (JSON do Grafana) também vai como evidência.
+  if (rogue) arquivos.push(new File([confMascarar(confEstado.trace.texto)], `Rogue_${caso.ct_id}_${carimbo}_trace_${ch.traceId}.json`, { type: 'application/json' }));
 
   if (r.sugestao !== 'pendente') salvarDadosExecucao(caso.ct_id, 'status', r.sugestao);
   const atual = ((avaliacoesQA[caso.ct_id] || {}).comments || '').trim();
   const nota = `[Auto ${ch.inicio}] ${r.motivo}`;
   salvarDadosExecucao(caso.ct_id, 'comments', atual ? `${atual} | ${nota}` : nota);
-  await anexarEvidencias(caso.ct_id, { files: [arquivo], value: '' });
+  await anexarEvidencias(caso.ct_id, { files: arquivos, value: '' });
   alert(`${caso.ct_id}: status ${r.sugestao === 'pendente' ? 'mantido' : 'atualizado'} e evidência anexada (aba Execução dos Testes).`);
+}
+
+/* ─── ROGUE: trace do Jaeger exportado do Grafana ───
+   Cada passo da conversa é um span "Dialog" com o estado (condition.state), o SP da
+   transição (sessionContext.spTransition = "8416 - CRN_IDX_..."), o SP + nome do prompt
+   (sessionContext.spPrompt = "4476 - CRN_IDX_Identificacao_PedeIDDtmfIniRdm") e a saída
+   escolhida (sessionContext.tag_transfer_<Estado>_<n>). Uma ligação pode passar por
+   mais de um projeto (ex.: claro-crn-ura → claro-tlv-ura) no mesmo trace. */
+
+// Aceita o "Inspect → Data → Download" do Grafana (data frame) e o JSON nativo do Jaeger.
+function _confSpansDoTrace(json) {
+  const paraMapa = lista => {
+    const m = {};
+    (lista || []).forEach(t => { if (t && t.key !== undefined) m[t.key] = t.value; });
+    return m;
+  };
+  const spans = [];
+  const quadros = Array.isArray(json) ? json : [json];
+  quadros.forEach(q => {
+    if (q && q.schema && q.data && Array.isArray(q.schema.fields)) {
+      const nomes = q.schema.fields.map(f => f.name);
+      const col = n => q.data.values[nomes.indexOf(n)] || [];
+      const total = (q.data.values[0] || []).length;
+      for (let i = 0; i < total; i++) {
+        spans.push({
+          traceId: col('traceID')[i], servico: col('serviceName')[i] || '', operacao: col('operationName')[i] || '',
+          inicioMs: Number(col('startTime')[i]),
+          tags: paraMapa(col('tags')[i]),
+          logs: paraMapa((col('logs')[i] || []).flatMap(l => l.fields || [])),
+        });
+      }
+    }
+  });
+  if (!spans.length && json && Array.isArray(json.data)) {
+    json.data.forEach(t => (t.spans || []).forEach(s => spans.push({
+      traceId: s.traceID, servico: ((t.processes || {})[s.processID] || {}).serviceName || '', operacao: s.operationName || '',
+      inicioMs: Number(s.startTime) / 1000,   // Jaeger nativo: microssegundos
+      tags: paraMapa(s.tags), logs: paraMapa((s.logs || []).flatMap(l => l.fields || [])),
+    })));
+  }
+  return spans.filter(s => isFinite(s.inicioMs)).sort((a, b) => a.inicioMs - b.inicioMs);
+}
+
+function confLerTraceRogue(json) {
+  const spans = _confSpansDoTrace(json);
+  if (!spans.length) return null;
+  const p = n => String(n).padStart(2, '0');
+  const hora = ms => { const d = new Date(ms); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+  const dataDe = ms => { const d = new Date(ms); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+  const tag = (s, k) => { const v = s.tags['sessionContext.' + k] ?? s.tags[k] ?? s.logs[k]; return v === undefined || v === null ? '' : String(v); };
+  const codigoNome = v => { const m = /^\s*(\d+)\s*-\s*(.*)$/.exec(v || ''); return m ? { codigo: m[1], nome: m[2].trim() } : null; };
+
+  const ch = _confNovaChamada(dataDe(spans[0].inicioMs), hora(spans[0].inicioMs), '', '');
+  ch.origem = 'rogue';
+  ch.traceId = spans[0].traceId || '';
+  ch.fim = hora(spans[spans.length - 1].inicioMs);
+  const projetos = [], conversas = [], ramais = [];
+  const vistos = new Set();
+  let ultimaChave = '';
+  spans.forEach(s => {
+    const h = hora(s.inicioMs);
+    const proj = s.tags.project, conv = tag(s, 'conversationId'), ramal = tag(s, 'Extension');
+    if (proj && !projetos.includes(proj)) projetos.push(proj);
+    if (conv && !conversas.includes(conv)) conversas.push(conv);
+    if (ramal && !ramais.includes(ramal)) ramais.push(ramal);
+    if (!ch.ani) ch.ani = _confDigitos(tag(s, 'ani') || tag(s, 'fromName'));
+    if (!ch.dnis) ch.dnis = tag(s, 'dnis');
+    if (s.servico !== 'Dialog') return;
+
+    const estado = s.tags['condition.state'] || '';
+    const trans = codigoNome(tag(s, 'spTransition'));
+    const prompt = codigoNome(tag(s, 'spPrompt'));
+    const novasSaidas = Object.keys(s.tags)
+      .map(k => /^(?:sessionContext\.)?tag_transfer_(.+)_(\d+)$/.exec(k))
+      .filter(m => m && !vistos.has(m[1] + '|' + m[2]));
+    novasSaidas.forEach(m => vistos.add(m[1] + '|' + m[2]));
+    // O span de "Transferencia" repete o último SP: só entra o que mudou.
+    const chave = `${trans && trans.codigo}|${prompt && prompt.codigo}`;
+    const repetido = chave === ultimaChave;
+    ultimaChave = chave;
+
+    const partes = [];
+    if (trans && !repetido) { ch.sps.push({ codigo: trans.codigo, hora: h, estado, nome: trans.nome }); partes.push(`SP transição ${trans.codigo} - ${trans.nome}`); }
+    if (prompt && !repetido) {
+      ch.sps.push({ codigo: prompt.codigo, hora: h, estado, nome: prompt.nome });
+      ch.prompts.push({ id: prompt.nome, hora: h, estado });
+      partes.push(`prompt ${prompt.codigo} - ${prompt.nome}`);
+    }
+    novasSaidas.forEach(m => {
+      ch.digitos.push({ valor: m[2], hora: h, estado: m[1], rotulo: `↪ saída ${m[2]} do estado ${m[1]}` });
+      partes.push(`saída ${m[2]} de ${m[1]}`);
+    });
+    if (/^transfer/i.test(estado)) {
+      ch.transferencia = { destino: tag(s, 'transfer'), prompt: '', hora: h };
+      partes.push(`TRANSFERÊNCIA ${tag(s, 'transfer')}`);
+    }
+    if (partes.length) ch.linhas.push(`${h} | ${estado || '—'} | ${partes.join(' | ')}`);
+  });
+  ch.transacao = conversas.join(', ');
+  ch.node = 'ROGUE ' + (projetos.join(' → ') || '');
+  ch.resumo = `Trace ${ch.traceId} · ${projetos.join(' → ')}${ramais.length ? ` · ramal(is) ${ramais.join(' → ')}` : ''} · ${conversas.length} conversa(s)`;
+  return ch;
+}
+
+async function confCarregarTrace(input) {
+  const arq = (input.files || [])[0];
+  if (!arq) return;
+  const texto = await arq.text();
+  let ch = null;
+  try { ch = confLerTraceRogue(JSON.parse(texto)); } catch (e) { ch = null; }
+  if (!ch || !ch.sps.length) {
+    alert('Não encontrei a jornada da conversa neste JSON. Exporte o trace pelo Grafana (Inspect → Data → Download) com o trace aberto no Explore.');
+    input.value = '';
+    return;
+  }
+  const ani = _autoValor('ura_rogue', 'ani');
+  if (ani && ch.ani && !_confAniBate(ch.ani, ani)) {
+    if (!confirm(`O ANI do trace (${ch.ani}) é diferente do ANI configurado (${ani}). Usar este trace mesmo assim?`)) { input.value = ''; return; }
+  }
+  confEstado.trace = { nome: arq.name, texto };
+  confEstado.chamadas = [ch];
+  confEstado.idx = 0;
+  renderizarConferencia();
 }
