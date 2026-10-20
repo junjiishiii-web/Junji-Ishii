@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.34" />
-  <script src="versao.js?v=2.34"></script>
-  <script src="automacao.js?v=2.34"></script>
-  <script src="conferencia.js?v=2.34"></script>
-  <script src="execucao.js?v=2.34"></script>
-  <script src="execucao_auto.js?v=2.34"></script>
+  <link rel="stylesheet" href="style.css?v=2.35" />
+  <script src="versao.js?v=2.35"></script>
+  <script src="automacao.js?v=2.35"></script>
+  <script src="conferencia.js?v=2.35"></script>
+  <script src="execucao.js?v=2.35"></script>
+  <script src="execucao_auto.js?v=2.35"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -839,10 +839,57 @@
   // Como a massa precisa estar para o CT cair no caminho/target certo (vem do backend: perfil do ANI,
   // restrições, linha do cenário do EEP e condições da SPEC que dependem do cliente/chaves).
   function htmlCondicoesMassa(caso) {
-    const itens = caso.condicoes_massa || [];
+    const itens = (caso.condicoes_massa && caso.condicoes_massa.length) ? caso.condicoes_massa : condicoesMassaDoNavegador(caso);
     if (!itens.length) return `${escHtml(caso.requisitos_massa || caso.perfil || '—')}`;
     return `<ul class="massa-condicoes">${itens.map(i =>
-      `<li><strong>${escHtml(i.rotulo)}:</strong> ${escHtml(i.valor)}</li>`).join('')}</ul>`;
+      `<li class="${/Divergente/.test(i.rotulo) ? 'massa-divergente' : ''}"><strong>${escHtml(i.rotulo)}:</strong> ${escHtml(i.valor)}</li>`).join('')}</ul>`;
+  }
+
+  // Modelagens salvas antes da 2.34 não trazem condicoes_massa: monta o mesmo detalhamento com o que
+  // o CT já tem — requisitos (ANI, linha, MPL…), a linha do cenário do EEP gravada na alteração
+  // ("Cenário 1 — Grupo: …; Critério do grupo: …; Crédito: …; Target: …") e as condições dos passos.
+  const _RX_COND_MASSA_JS = /chave|dnis|ddd|segment|client|cr[eé]dit|score|cabl|cabead|mailing|rechamad|adimpl|inadimpl|m[oó]vel|celular|fixo|\bcep\b|cpf|cnpj|contrato|plano|produto|\bbase\b|servicegroup|rtdm|afterhours|hor[aá]rio|protocolo|\bmpl\b|cadastr|identific|ani\b|elegiv|pilot|perfil|indicador|rec[eê]ncia|bloque|suspens|ativ[ao]|desativ/i;
+  const _RX_SO_TECLA_JS = /^\s*(dtmf|digit\w*|tecl\w*|op[cç][aã]o|selecion\w*)?\s*[:=]?\s*[\d*#]{1,3}\s*$/i;
+  function condicoesMassaDoNavegador(caso) {
+    const itens = [];
+    const perfil = String(caso.perfil || caso.requisitos_massa || '');
+    itens.push({ rotulo: 'Perfil do ANI', valor: /n[aã]o/i.test(perfil.split('|')[0])
+      ? 'ANI Não — ligar de um número que NÃO identifica o cliente' : 'ANI Sim — ligar do número cadastrado para o cliente' });
+    String(caso.requisitos_massa || '').split('|').slice(1).forEach(p => {
+      const m = /^\s*([^:]+):\s*(.+)$/.exec(p);
+      if (m) itens.push({ rotulo: m[1].trim(), valor: m[2].trim() });
+    });
+    const cen = /^\s*Cen[aá]rio\s+\S+\s+[—-]\s+(.*)$/i.exec(String(caso.alteracao_relatada || ''));
+    let alvo = '';
+    if (cen) cen[1].split(/;\s*/).forEach(par => {
+      const m = /^\s*([^:]+):\s*(.+)$/.exec(par);
+      if (!m) return;
+      if (/target|vdn|\bid\b/i.test(m[1])) alvo = alvo || `${m[1].trim()}|${m[2].trim()}`;
+      else itens.push({ rotulo: m[1].trim(), valor: m[2].trim() });
+    });
+    if (!alvo && cen) {
+      // O target não fica no texto do cenário: está no resultado do último passo ("Target 2730835") ou no Gherkin.
+      const fim = (caso.steps || []).map(s => String(s.resultado || '')).join('\n');
+      const m = /^(Target|ID de transfer[eê]ncia|VDN)\s+(\d{4,})/im.exec(fim) || /taxonomia\s+(\d{4,})/i.exec(String(caso.gherkin || ''));
+      if (m) alvo = m.length > 2 ? `${m[1]}|${m[2]}` : `Target|${m[1]}`;
+    }
+    if (alvo) { const [k, v] = alvo.split('|'); itens.push({ rotulo: `${k} esperado`, valor: v }); }
+    const cenario = itens.map(i => i.valor).join(' ').toLowerCase();
+    const vistos = new Set(itens.map(i => i.valor.toLowerCase()));
+    (caso.steps || []).forEach(st => {
+      const m = /\((.*)\)\s*$/.exec(String(st.acao || ''));
+      if (!m) return;
+      m[1].split(/\s+>\s+/).forEach(c => {
+        c = c.trim();
+        if (!c || _RX_SO_TECLA_JS.test(c) || !_RX_COND_MASSA_JS.test(c) || vistos.has(c.toLowerCase()) || /^ani\s+(sim|n[aã]o)$/i.test(c)) return;
+        vistos.add(c.toLowerCase());
+        const diverge = cen && ((/reprovad/.test(cenario) && /(^|[^e])aprovad/i.test(c) && !/reprovad/i.test(c))
+          || (/(^|[^r])aprovad/.test(cenario) && /reprovad/i.test(c))
+          || (/(^|[^o] )cabead/.test(cenario) && !/n[aã]o cabead/.test(cenario) && /n[aã]o cabead/i.test(c)));
+        itens.push({ rotulo: `${diverge ? '⚠️ Divergente do cenário — ' : ''}Condição em ${st.estado || '—'}`, valor: c });
+      });
+    });
+    return itens;
   }
   function htmlMassaCt(ctId) {
     const m = (avaliacoesQA[ctId] || {}).massa || {};

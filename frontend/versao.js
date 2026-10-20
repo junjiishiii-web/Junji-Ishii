@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.35',
+    data: '20/10/2026',
+    itens: [
+      'Massa de Testes: o detalhamento da "Condição da massa" também aparece em modelagens salvas antes da 2.34 (montado a partir do cenário do EEP e dos passos do CT), sem precisar gerar de novo. Condições divergentes do cenário ficam em vermelho.',
+    ],
+  },
+  {
     numero: '2.34',
     data: '20/10/2026',
     itens: [
