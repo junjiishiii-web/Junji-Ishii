@@ -4,10 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.25" />
-  <script src="versao.js?v=2.28"></script>
-  <script src="automacao.js?v=2.25"></script>
-  <script src="conferencia.js?v=2.25"></script>
+  <link rel="stylesheet" href="style.css?v=2.29" />
+  <script src="versao.js?v=2.29"></script>
+  <script src="automacao.js?v=2.29"></script>
+  <script src="conferencia.js?v=2.29"></script>
+  <script src="execucao.js?v=2.29"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -235,6 +236,7 @@
         </div>
         <div class="exec-acoes">
           <span id="execResumo" class="exec-resumo"></span>
+          <button class="btn-export-pdf btn-iniciar-plano" onclick="execIniciarPlano()" title="Executar os CTs do plano um a um">▶ Iniciar execução do plano</button>
           <button class="btn-export-pdf" id="btnExportPdf" onclick="exportarExecucaoPDF()">📄 Exportar PDF</button>
           <button class="btn-export-pdf" id="btnExportZip" onclick="baixarZipEvidencias(false)" title="Baixa só as evidências, organizadas por CT">📦 Evidências (.zip)</button>
         </div>
@@ -382,6 +384,7 @@
             <li><strong>Dados de execução</strong>: número a discar, origem (Avaya ou celular), ANI, servidor e diretório dos logs ou URL do Grafana, e um campo livre para as outras informações importantes. Os campos com <strong>*</strong> são obrigatórios.</li>
             <li><strong>CTs do roteiro</strong>: todos vêm marcados; use os filtros (novos, regressivos, pendentes) para escolher.</li>
             <li><strong>⬇️ Gerar roteiro de automação</strong>: baixa um .json com a configuração e, para cada CT, os steps, o DTMF sugerido, os prompts e os SPs esperados.</li>
+            <li><strong>▶ Iniciar execução do plano</strong> (aba Automação ou Execução dos Testes) ou <strong>▶ Executar</strong> em um CT: a ferramenta mostra um CT por vez com o número a discar (formato Avaya, ex.: <code>0031 2108-6950</code>), o código da esteira no ROGUE e as teclas e prompts de cada passo. Faça a ligação, siga os passos e clique em <em>Terminei a ligação</em>: a conferência abre (na URA Legado, já buscando a chamada na pasta autorizada); ao aplicar, ela grava o resultado e segue para o próximo CT. Dá para pular, voltar e pausar; no fim aparece o resumo.</li>
             <li><strong>Buscar minha chamada (URA Legado, na VPN, Chrome ou Edge)</strong>: informe o dia e o ANI e clique em <em>📁 Buscar minha chamada</em>. Na primeira vez o navegador pede a pasta: cole <code>\\URA\lmcti\Data</code> (ex.: <code>\\BHZNETAECUR98\lmcti\Data</code>) na barra de endereço da janela, clique em <em>Selecionar pasta</em> e em <em>Permitir</em>. A pasta fica lembrada por URA; depois a ferramenta acha a chamada do ANI em todos os canais do dia e já carrega os 2 logs. Use <em>trocar pasta</em> se escolheu a pasta errada.</li>
             <li><strong>Conferir evidência (URA Legado)</strong>: faça a ligação do CT, pegue os <strong>2 logs</strong> da chamada e carregue cada um no seu campo: ① <strong>Log URA</strong> <code>\\URA\lmcti\Data\UraLog\AAAA\MM\DD\URADebug_AAAA-MM-DD_node_canal.txt</code> e ② <strong>Log Integração</strong> <code>\\URA\lmcti\Data\IntegracaoLog\AAAA\MM\DD\IntegracaoDebug_AAAA-MM-DD_node_canal.txt</code> (mesmo final data_node_canal; a ferramenta avisa se não baterem). A ferramenta acha a sua chamada pelo ANI (dá para trocar na lista), mostra quais SPs esperados foram marcados (✓/✗), quais prompts tocaram e sugere OK ou Não OK. <em>Aplicar no CT</em> grava o status e anexa o trecho só daquela chamada como evidência, com os tokens das APIs mascarados.</li>
             <li><strong>Trazer o trace do ROGUE sem baixar arquivo</strong>: na conferência do ROGUE, arraste o botão <em>➜ Enviar ao Modeler</em> para a barra de favoritos (uma vez só; Ctrl+Shift+B mostra a barra). Depois de cada ligação: abra o Conversation Finder pelo link da conferência, clique no ConversationId, clique no favorito e volte ao Modeler em <em>📋 Colar trace do Grafana</em>. Se o navegador pedir, permita ler a área de transferência (ou cole com Ctrl+V na caixa que aparece).</li>
@@ -444,6 +447,17 @@
       <button class="manual-fechar" onclick="confFecharModal()" title="Fechar (Esc)">✕ Fechar</button>
     </div>
     <div class="conf-modal-corpo" id="confModalCorpo"></div>
+  </div>
+</div>
+
+<!-- Execução guiada do plano / de um CT (lógica em execucao.js) -->
+<div class="conf-modal" id="execModal" role="dialog" aria-modal="true" aria-labelledby="execModalTitulo">
+  <div class="conf-modal-janela">
+    <div class="conf-modal-topo">
+      <h3 id="execModalTitulo">▶ Execução do plano de testes</h3>
+      <button class="manual-fechar" onclick="execEncerrar()" title="Pausar / fechar (Esc)">✕ Fechar</button>
+    </div>
+    <div class="conf-modal-corpo" id="execModalCorpo"></div>
   </div>
 </div>
 
@@ -1580,6 +1594,8 @@
                </label>
                <button type="button" class="btn-evid btn-conferir" title="Carregar o log da URA / trace do ROGUE e conferir os SPs e prompts deste CT"
                  onclick="confAbrirModal('${idCt}')">🔎 Conferir evidência</button>
+               <button type="button" class="btn-evid btn-conferir btn-executar-ct" title="Executar este CT: número a discar, passos e conferência da evidência"
+                 onclick="execExecutarCt('${idCt}')">▶ Executar</button>
              </div>
            </div>`
         : '';

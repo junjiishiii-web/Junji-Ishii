@@ -403,10 +403,13 @@ function confAbrirModal(ctId) {
   renderizarConferencia();
 }
 function confFecharModal() {
+  const ctId = confModalCt;
   confModalCt = '';
   document.getElementById('confModal').classList.remove('aberto');
   document.getElementById('confModalCorpo').innerHTML = '';
   renderizarConferencia();
+  // Aberta pela execução guiada (execucao.js): volta para ela.
+  if (ctId && typeof execAposConferencia === 'function') execAposConferencia(ctId);
 }
 function confIrParaAutomacao() {
   confFecharModal();

@@ -835,3 +835,37 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 .conf-bookmarklet { display: inline-block; padding: 6px 12px; border: 2px dashed var(--clr-navy); border-radius: 14px; background: #EEF4FD; color: var(--clr-navy); font-weight: 700; text-decoration: none; cursor: grab; }
 .conf-colar { margin-top: 8px; }
 .conf-colar textarea { font-family: monospace; }
+.auto-travado { background: #EEF1F5; color: #333; font-family: monospace; font-weight: 700; cursor: not-allowed; }
+.auto-nota-campo { font-size: 10px; font-weight: 500; color: #666; }
+
+/* ─── Execução guiada ─── */
+.btn-iniciar-plano { background: #1E6B32; border-color: #1E6B32; }
+.btn-executar-ct { border-color: #1E6B32; color: #1E6B32; }
+.btn-executar-ct:hover { background: #1E6B32; color: #fff; }
+.exec-g-sec { background: #fff; color: var(--clr-navy); }
+.exec-g-sec:hover { background: #EEF4FD; }
+.auto-rodape-botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+.exec-g-titulo { margin: 0 0 6px; font-size: 15px; color: var(--clr-dark); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.exec-g-gherkin { font-size: 12px; color: #444; margin: 0 0 4px; font-style: italic; }
+.exec-g-prereq { font-size: 12px; margin: 0 0 12px; }
+.exec-g-progresso { display: flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 600; color: #444; margin-bottom: 12px; }
+.exec-g-barra { flex: 1; height: 6px; background: #E2E6EC; border-radius: 3px; overflow: hidden; }
+.exec-g-barra div { height: 100%; background: #1E6B32; }
+.exec-g-ligar { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; background: #fff; border: 1px solid var(--clr-blue-light); border-left: 4px solid #1E6B32; border-radius: var(--radius-sm); padding: 12px 14px; margin: 0 0 14px; }
+.exec-g-ligar small { font-size: 12px; color: #555; }
+.exec-g-ligar code, .exec-g-dica code { color: var(--clr-navy); font-weight: 700; }
+.exec-g-rotulo { font-size: 12px; font-weight: 700; color: var(--clr-navy); margin-bottom: 4px; }
+.exec-g-numero { font-family: monospace; font-size: 22px; font-weight: 700; color: var(--clr-dark); letter-spacing: .5px; }
+.exec-g-btn-ligar { text-decoration: none; background: #1E6B32; border-color: #1E6B32; font-size: 14px; padding: 10px 18px; }
+.exec-g-passos td { font-size: 12px; vertical-align: top; }
+.exec-g-tecla { display: inline-block; background: #FFF6D6; border: 1px solid #E8D48A; border-radius: 4px; padding: 0 6px; font-weight: 700; font-family: monospace; white-space: nowrap; }
+.exec-g-ouvir { font-style: italic; color: #444; white-space: pre-line; }
+.exec-g-dica { font-size: 12px; color: #555; margin: 8px 0; }
+.exec-g-acoes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.exec-g-opcoes { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.exec-g-resumo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0 14px; }
+.exec-g-resumo div { text-align: center; font-size: 12px; padding: 10px; border-radius: var(--radius-sm); background: #fff; border: 1px solid var(--clr-muted); }
+.exec-g-resumo strong { display: block; font-size: 22px; }
+.exec-g-resumo .ok strong { color: #2E7D16; } .exec-g-resumo .nok strong { color: #C0392B; }
+.exec-g-resumo .blocked strong { color: #B7770D; } .exec-g-resumo .pendente strong { color: #666; }
+@media (max-width: 600px) { .exec-g-resumo { grid-template-columns: repeat(2, 1fr); } }

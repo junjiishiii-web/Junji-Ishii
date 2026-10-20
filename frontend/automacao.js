@@ -33,27 +33,28 @@ const AUTO_TIPOS = {
 
 // Para onde as chamadas vão. URA Legado: cada URA tem o seu número. ROGUE (CRN):
 // um único número e um código por esteira de homologação.
+// Telefones no formato discado pelo Avaya: 00 + DDD + número (ex.: 0031 2108-6950 → 003121086950).
 // "host" = nome da máquina na rede quando difere do nome exibido (usado no caminho dos logs).
 const AUTO_DESTINOS = {
   ura_legado: {
     titulo: 'URA que vai receber as chamadas',
     itens: [
-      { id: 'BHZNETUR95', nome: 'BHZNETUR95', ip: '10.0.132.19', node: '3095', telefone: '(31) 2108-6290' },
-      { id: 'BHZNETUR96', nome: 'BHZNETUR96', ip: '10.227.1.181', node: '3096', telefone: '(31) 2108-6490' },
-      { id: 'BHZETAECUR98', nome: 'BHZETAECUR98', host: 'BHZNETAECUR98', ip: '172.23.30.145', node: '3198', telefone: '(031) 2108-6950' },
-      { id: 'BHZNETAECUR99', nome: 'BHZNETAECUR99', ip: '172.23.30.146', node: '3199', telefone: '(031) 2108-9290' },
-      { id: 'CPSNETUR99', nome: 'CPSNETUR99', ip: '172.19.1.29', node: '1899', telefone: '(019) 2137-5400' },
+      { id: 'BHZNETUR95', nome: 'BHZNETUR95', ip: '10.0.132.19', node: '3095', telefone: '0031 2108-6290' },
+      { id: 'BHZNETUR96', nome: 'BHZNETUR96', ip: '10.227.1.181', node: '3096', telefone: '0031 2108-6490' },
+      { id: 'BHZETAECUR98', nome: 'BHZETAECUR98', host: 'BHZNETAECUR98', ip: '172.23.30.145', node: '3198', telefone: '0031 2108-6950' },
+      { id: 'BHZNETAECUR99', nome: 'BHZNETAECUR99', ip: '172.23.30.146', node: '3199', telefone: '0031 2108-9290' },
+      { id: 'CPSNETUR99', nome: 'CPSNETUR99', ip: '172.19.1.29', node: '1899', telefone: '0019 2137-5400' },
     ],
   },
   ura_rogue: {
     titulo: 'Esteira do CRN (HML)',
-    instrucao: 'Ligue para (021) 3616-1194 e, quando atender, digite o código da esteira (ex.: Principal = 2200339).',
+    instrucao: 'Ligue para 0021 3616-1194 216915 (contato "Rogue Esteiras" no Avaya) e, quando atender, digite o código da esteira (ex.: Principal = 2200339).',
     itens: [
       { id: 'principal', nome: 'CRN - Principal', codigo: '2200339' },
       ...'ABCDEFGHI'.split('').map((letra, i) => (
         { id: `esteira_${letra}`, nome: `CRN - Esteira ${i + 1} - ${letra}`, codigo: `22${i + 1}0339` }
       )),
-    ].map(e => ({ ...e, telefone: '(021) 3616-1194' })),
+    ].map(e => ({ ...e, telefone: '0021 3616-1194 216915' })),
   },
 };
 
@@ -266,14 +267,17 @@ function renderizarAutomacao() {
       <div class="history-table-wrap auto-tabela-wrap"><table class="data-table">
         <thead><tr>
           <th style="width:36px;"></th><th style="width:90px;">CT</th><th style="width:110px;">Tipo</th>
-          <th>Estado validado</th><th style="width:220px;">SPs esperados</th><th style="width:70px;">Steps</th>
+          <th>Estado validado</th><th style="width:220px;">SPs esperados</th><th style="width:70px;">Steps</th><th style="width:96px;"></th>
         </tr></thead>
         <tbody id="autoTabelaCts"></tbody>
       </table></div>
     </section>
     <section class="auto-secao auto-rodape">
       <div id="autoProntidao" class="auto-prontidao"></div>
-      <button class="btn-export-pdf" id="btnAutoRoteiro" onclick="autoBaixarRoteiro()">⬇️ Gerar roteiro de automação (.json)</button>
+      <div class="auto-rodape-botoes">
+        <button class="btn-export-pdf btn-iniciar-plano" onclick="execIniciarPlano()">▶ Iniciar execução do plano</button>
+        <button class="btn-export-pdf exec-g-sec" id="btnAutoRoteiro" onclick="autoBaixarRoteiro()">⬇️ Gerar roteiro (.json)</button>
+      </div>
     </section>
     ${tipo === 'ura_legado' || tipo === 'ura_rogue' ? `<section class="auto-secao conf-secao">
       <h4 class="auto-secao-titulo">${proximoNumero()} Conferir evidência da ligação <span class="auto-etapa">Etapa 2</span></h4>
@@ -284,7 +288,19 @@ function renderizarAutomacao() {
   _autoAtualizarProntidao();
 }
 
+// Número a discar sempre vem da URA / esteira escolhida (travado).
+function autoNumeroDiscar(tipo) {
+  const d = _autoDestinoEscolhido(tipo);
+  return d && d.telefone ? d.telefone : _autoValor(tipo, 'numero_destino');
+}
+
 function _autoHtmlCampo(c, tipo) {
+  if (c.id === 'numero_destino' && _autoDestinoEscolhido(tipo)) {
+    return `<label class="auto-campo"><span>${escHtml(c.rotulo)}</span>
+      <input type="text" class="auto-input auto-travado" id="auto-${c.id}" value="${escHtml(autoNumeroDiscar(tipo))}" readonly
+        title="Preenchido pela ${tipo === 'ura_rogue' ? 'esteira' : 'URA'} escolhida" />
+      <small class="auto-nota-campo">🔒 preenchido pela ${tipo === 'ura_rogue' ? 'esteira' : 'URA'} escolhida (formato Avaya: 00 + DDD)</small></label>`;
+  }
   const v = _autoValor(tipo, c.id);
   const obrig = _autoObrigatorio(c, tipo) ? '<span class="auto-obrig" title="Obrigatório">*</span>' : '';
   const attrs = `id="auto-${c.id}" oninput="autoAlterarCampo('${c.id}', this.value)" onchange="autoAlterarCampo('${c.id}', this.value)"`;
@@ -307,7 +323,7 @@ function _autoRenderTabela() {
   if (!corpo) return;
   const casos = _autoCasosFiltrados();
   if (!casos.length) {
-    corpo.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#888;padding:16px;">Nenhum CT neste filtro.</td></tr>`;
+    corpo.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:16px;">Nenhum CT neste filtro.</td></tr>`;
   } else {
     // Milhares de CTs (Mapear 100%): a tabela mostra os 500 primeiros do filtro; a seleção vale para todos.
     const LIMITE = 500;
@@ -321,9 +337,10 @@ function _autoRenderTabela() {
         <td>${escHtml(c.estado)}</td>
         <td class="auto-sps">${escHtml(r.sps_esperados.join(', ') || '—')}</td>
         <td>${r.passos.length}</td>
+        <td><button class="btn-evid" onclick="execExecutarCt('${id}')" title="Executar só este CT">▶ Executar</button></td>
       </tr>`;
     }).join('') + (casos.length > LIMITE
-      ? `<tr><td colspan="6" style="text-align:center;color:#666;padding:10px;">… e mais ${casos.length - LIMITE} CTs (use os filtros e “Marcar/Desmarcar visíveis” — vale para todos do filtro).</td></tr>`
+      ? `<tr><td colspan="7" style="text-align:center;color:#666;padding:10px;">… e mais ${casos.length - LIMITE} CTs (use os filtros e “Marcar/Desmarcar visíveis” — vale para todos do filtro).</td></tr>`
       : '');
   }
   const total = ((cacheModelagem && cacheModelagem.casos_teste) || []).length;
@@ -336,7 +353,7 @@ function _autoPendencias() {
   const tipo = autoConfig.tipo;
   if (!tipo) return ['Escolha a tecnologia a testar'];
   const faltando = AUTO_CAMPOS
-    .filter(c => _autoCampoAtivo(c, tipo) && _autoObrigatorio(c, tipo) && !_autoValor(tipo, c.id).trim())
+    .filter(c => _autoCampoAtivo(c, tipo) && _autoObrigatorio(c, tipo) && !(c.id === 'numero_destino' ? autoNumeroDiscar(tipo) : _autoValor(tipo, c.id)).trim())
     .map(c => c.rotulo);
   if (AUTO_DESTINOS[tipo] && !_autoDestinoEscolhido(tipo)) faltando.unshift(AUTO_DESTINOS[tipo].titulo);
   if (!_autoCasosSelecionados().length) faltando.push('Selecione ao menos 1 CT');
@@ -391,6 +408,10 @@ function autoAlterarCampo(id, valor) {
   (autoConfig.valores[tipo] = autoConfig.valores[tipo] || {})[id] = valor;
   _autoSalvarConfig();
   _autoAtualizarProntidao();
+  // O ANI da configuração alimenta o "ANI que ligou" da conferência (se o QA não digitou outro lá).
+  if (id === 'ani' && typeof confEstado !== 'undefined' && !confEstado.aniBusca) {
+    document.querySelectorAll('#confAni').forEach(el => { el.value = valor; });
+  }
 }
 function autoFiltrar(f) {
   autoFiltro = f;
@@ -424,10 +445,12 @@ function autoBaixarRoteiro() {
 
   const config = {};
   AUTO_CAMPOS.filter(c => _autoCampoAtivo(c, tipo)).forEach(c => { config[c.id] = _autoValor(tipo, c.id).trim(); });
+  if (config.numero_destino !== undefined) config.numero_destino = autoNumeroDiscar(tipo);
   const destino = _autoDestinoEscolhido(tipo);
   // Como o executor abre a chamada: ROGUE disca o número único e, ao atender, digita o código da esteira.
   const discagem = tipo === 'chatbot' ? null : {
     numero: config.numero_destino || (destino && destino.telefone) || '',
+    digitos: String(config.numero_destino || (destino && destino.telefone) || '').replace(/\D/g, ''),
     dtmf_ao_atender: (destino && destino.codigo) || null,
   };
   const roteiro = {
