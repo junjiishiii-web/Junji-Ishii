@@ -2,8 +2,8 @@
    "▶ Iniciar execução do plano" (aba Automação / Execução dos Testes) percorre os CTs
    selecionados; "▶ Executar" (em cada CT) roda só aquele. Para cada CT mostra o número a
    discar (formato Avaya), o código da esteira (ROGUE) e as teclas/prompts de cada passo.
-   O QA liga (o 📞 abre o discador do computador, ex.: Avaya one-X, se ele atende links
-   tel:), segue os passos e clica em "Terminei a ligação": abre a conferência do CT, que
+   O QA liga (📋 copia o número para colar no Avaya one-X, que não atende links tel:),
+   segue os passos e clica em "Terminei a ligação": abre a conferência do CT, que
    busca a evidência sozinha (URA Legado: pasta autorizada). Ao aplicar o resultado, segue
    para o próximo CT. A ligação em si ainda é feita pelo QA (a discagem automática é a etapa 4). */
 
@@ -112,7 +112,8 @@ function _execMostrarCt() {
         <div class="exec-g-numero">${escHtml(numero)}</div>
         <small>Digite no Avaya: <code>${escHtml(digitos)}</code>${destino.codigo ? ` · ao atender, digite o código da esteira <code>${escHtml(destino.codigo)}</code>` : ''}</small>
       </div>
-      <a class="btn-export-pdf exec-g-btn-ligar" href="tel:${escHtml(digitos)}" title="Abre o discador do computador (ex.: Avaya one-X), se ele estiver configurado para links de telefone">📞 Ligar</a>
+      <button class="btn-export-pdf exec-g-btn-ligar" onclick="execCopiarNumero('${escHtml(digitos)}')"
+        title="Copia o número; no Avaya one-X clique em “Insira um nome ou número”, Ctrl+V e Enter">📋 Copiar número</button>
     </div>
 
     <div class="exec-g-rotulo">2. Siga os passos (teclas e o que deve tocar)</div>
@@ -128,6 +129,20 @@ function _execMostrarCt() {
       ${total > 1 && execPos > 0 ? `<button class="btn-export-pdf exec-g-sec" onclick="execVoltar()">⏮ Anterior</button>` : ''}
       <button class="btn-export-pdf exec-g-sec" onclick="execEncerrar()">${total > 1 ? 'Pausar / encerrar' : 'Fechar'}</button>
     </div>`, `▶ Execução — ${ctId}`);
+}
+
+// O Avaya one-X não atende links tel: — o número vai para a área de transferência e o QA cola no one-X.
+async function execCopiarNumero(digitos) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(digitos); ok = true; } catch (e) {
+    try {
+      const t = document.createElement('textarea');
+      t.value = digitos; document.body.appendChild(t); t.select();
+      ok = document.execCommand('copy'); t.remove();
+    } catch (e2) { ok = false; }
+  }
+  if (ok) _confAvisoRapido(`Número ${digitos} copiado. No Avaya: clique em “Insira um nome ou número”, Ctrl+V e Enter.`);
+  else alert(`Não consegui copiar. Digite no Avaya: ${digitos}`);
 }
 
 function execTerminei() {

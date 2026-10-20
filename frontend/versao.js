@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.31',
+    data: '20/10/2026',
+    itens: [
+      'Execução guiada: o botão 📞 Ligar virou 📋 Copiar número — o Avaya one-X não abre links de telefone (o Windows oferecia Chrome/Edge/Skype). Copie e, no one-X, clique em "Insira um nome ou número", Ctrl+V e Enter.',
+    ],
+  },
+  {
     numero: '2.30',
     data: '20/10/2026',
     itens: [
@@ -15,7 +22,7 @@ window.MODELER_VERSOES = [
     data: '20/10/2026',
     itens: [
       'Automação: ▶ Iniciar execução do plano (aba Automação e Execução dos Testes) e ▶ Executar em cada CT. Um CT por vez: número a discar, código da esteira (ROGUE), teclas e prompts de cada passo; ao clicar em "Terminei a ligação" a conferência abre já buscando a evidência e, ao aplicar, segue para o próximo CT. Pular, voltar, pausar e resumo final (OK / Não OK / pendentes).',
-      'Número a discar travado e no formato do Avaya (00 + DDD): 0031 2108-6950, 0019 2137-5400, ROGUE 0021 3616-1194 216915 (o código 216915 faz parte da discagem; é o contato "Rogue Esteiras" do Avaya). O botão 📞 Ligar abre o discador do computador (ex.: Avaya one-X), se ele estiver configurado para links de telefone.',
+      'Número a discar travado e no formato do Avaya (00 + DDD): 0031 2108-6950, 0019 2137-5400, ROGUE 0021 3616-1194 216915 (o código 216915 faz parte da discagem; é o contato "Rogue Esteiras" do Avaya). O botão 📋 Copiar número copia o número para colar no Avaya one-X.',
     ],
   },
   {
