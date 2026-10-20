@@ -33,13 +33,14 @@ const AUTO_TIPOS = {
 
 // Para onde as chamadas vão. URA Legado: cada URA tem o seu número. ROGUE (CRN):
 // um único número e um código por esteira de homologação.
+// "host" = nome da máquina na rede quando difere do nome exibido (usado no caminho dos logs).
 const AUTO_DESTINOS = {
   ura_legado: {
     titulo: 'URA que vai receber as chamadas',
     itens: [
       { id: 'BHZNETUR95', nome: 'BHZNETUR95', ip: '10.0.132.19', node: '3095', telefone: '(31) 2108-6290' },
       { id: 'BHZNETUR96', nome: 'BHZNETUR96', ip: '10.227.1.181', node: '3096', telefone: '(31) 2108-6490' },
-      { id: 'BHZETAECUR98', nome: 'BHZETAECUR98', ip: '172.23.30.145', node: '3198', telefone: '(031) 2108-6950' },
+      { id: 'BHZETAECUR98', nome: 'BHZETAECUR98', host: 'BHZNETAECUR98', ip: '172.23.30.145', node: '3198', telefone: '(031) 2108-6950' },
       { id: 'BHZNETAECUR99', nome: 'BHZNETAECUR99', ip: '172.23.30.146', node: '3199', telefone: '(031) 2108-9290' },
       { id: 'CPSNETUR99', nome: 'CPSNETUR99', ip: '172.19.1.29', node: '1899', telefone: '(019) 2137-5400' },
     ],
@@ -79,15 +80,17 @@ const AUTO_CAMPOS = [
 
   // Evidência: URA Legado
   { id: 'ura_acesso', grupo: 'evidencia', rotulo: 'Forma de acesso ao diretório', tipo: 'select', opcoes: ['A confirmar', 'SSH / SFTP', 'Pasta de rede Windows (SMB)', 'FTP', 'Outro'], tipos: ['ura_legado'] },
-  { id: 'ura_diretorio', grupo: 'evidencia', rotulo: 'Diretório dos logs (.txt)', dica: 'ex.: /var/log/ura/ ou \\\\servidor\\logs', tipos: ['ura_legado'], obrigatorio: true },
-  { id: 'ura_padrao_arquivo', grupo: 'evidencia', rotulo: 'Padrão do nome do arquivo', dica: 'ex.: log_AAAAMMDD_*.txt', tipos: ['ura_legado'] },
+  { id: 'ura_diretorio', grupo: 'evidencia', rotulo: 'Log URA — pasta', dica: '\\\\URA\\lmcti\\Data\\UraLog\\AAAA\\MM\\DD\\', tipos: ['ura_legado'], obrigatorio: true },
+  { id: 'ura_padrao_arquivo', grupo: 'evidencia', rotulo: 'Log URA — arquivo', dica: 'URADebug_AAAA-MM-DD_<node>_<canal>.txt', tipos: ['ura_legado'] },
+  { id: 'ura_diretorio_integracao', grupo: 'evidencia', rotulo: 'Log Integração — pasta', dica: '\\\\URA\\lmcti\\Data\\IntegracaoLog\\AAAA\\MM\\DD\\', tipos: ['ura_legado'], obrigatorio: true },
+  { id: 'ura_padrao_integracao', grupo: 'evidencia', rotulo: 'Log Integração — arquivo', dica: 'IntegracaoDebug_AAAA-MM-DD_<node>_<canal>.txt', tipos: ['ura_legado'] },
   { id: 'ura_usuario', grupo: 'evidencia', rotulo: 'Usuário de acesso (sem senha)', tipos: ['ura_legado'] },
   { id: 'ura_chave_busca', grupo: 'evidencia', rotulo: 'Como achar a chamada no log', dica: 'ex.: ANI, UCID, horário', tipos: ['ura_legado'] },
 
   // Evidência: Grafana (ROGUE e, provavelmente, ChatBOT)
   { id: 'grafana_url', grupo: 'evidencia', rotulo: 'URL do Grafana', dica: 'https://grafana…', tipos: ['ura_rogue', 'chatbot'], obrigatorio: ['ura_rogue'] },
   { id: 'grafana_painel', grupo: 'evidencia', rotulo: 'Link do painel / Explore usado na evidência', tipos: ['ura_rogue', 'chatbot'] },
-  { id: 'grafana_fonte', grupo: 'evidencia', rotulo: 'Fonte de dados', tipo: 'select', opcoes: ['A confirmar', 'Loki', 'Elasticsearch / OpenSearch', 'Prometheus', 'Banco SQL', 'Outra'], tipos: ['ura_rogue', 'chatbot'] },
+  { id: 'grafana_fonte', grupo: 'evidencia', rotulo: 'Fonte de dados', tipo: 'select', opcoes: ['A confirmar', 'Jaeger (traces)', 'Loki', 'Elasticsearch / OpenSearch', 'Prometheus', 'Banco SQL', 'Outra'], tipos: ['ura_rogue', 'chatbot'] },
   { id: 'grafana_chave_busca', grupo: 'evidencia', rotulo: 'Campo que identifica a chamada / conversa', dica: 'ex.: ani, callId, sessionId', tipos: ['ura_rogue', 'chatbot'] },
   { id: 'fuso', grupo: 'evidencia', rotulo: 'Fuso horário dos registros', tipo: 'select', opcoes: ['America/Sao_Paulo (BRT)', 'UTC'], tipos: ['ura_rogue', 'chatbot', 'ura_legado'] },
 
@@ -271,7 +274,11 @@ function renderizarAutomacao() {
     <section class="auto-secao auto-rodape">
       <div id="autoProntidao" class="auto-prontidao"></div>
       <button class="btn-export-pdf" id="btnAutoRoteiro" onclick="autoBaixarRoteiro()">⬇️ Gerar roteiro de automação (.json)</button>
-    </section>`;
+    </section>
+    ${tipo === 'ura_legado' || tipo === 'ura_rogue' ? `<section class="auto-secao conf-secao">
+      <h4 class="auto-secao-titulo">${proximoNumero()} Conferir evidência da ligação <span class="auto-etapa">Etapa 2</span></h4>
+      <div id="autoConferencia"></div>
+    </section>` : ''}`;
 
   _autoRenderTabela();
   _autoAtualizarProntidao();
@@ -322,6 +329,7 @@ function _autoRenderTabela() {
   const total = ((cacheModelagem && cacheModelagem.casos_teste) || []).length;
   const cont = document.getElementById('autoContSel');
   if (cont) cont.textContent = `${_autoCasosSelecionados().length} de ${total}`;
+  if (typeof renderizarConferencia === 'function') renderizarConferencia();
 }
 
 function _autoPendencias() {
@@ -358,6 +366,22 @@ function autoEscolherDestino(id) {
   valores.destino = id;
   const d = _autoDestinoEscolhido(tipo);
   if (d && d.telefone) valores.numero_destino = d.telefone;
+  // URA Legado: os logs ficam numa pasta de rede da própria URA, separados por dia, node e canal.
+  if (d && tipo === 'ura_legado') {
+    valores.ura_acesso = 'Pasta de rede Windows (SMB)';
+    valores.ura_diretorio = `\\\\${d.host || d.nome}\\lmcti\\Data\\UraLog\\AAAA\\MM\\DD\\`;
+    valores.ura_padrao_arquivo = `URADebug_AAAA-MM-DD_${d.node}_<canal>.txt`;
+    valores.ura_diretorio_integracao = `\\\\${d.host || d.nome}\\lmcti\\Data\\IntegracaoLog\\AAAA\\MM\\DD\\`;
+    valores.ura_padrao_integracao = `IntegracaoDebug_AAAA-MM-DD_${d.node}_<canal>.txt`;
+    if (!valores.ura_chave_busca) valores.ura_chave_busca = 'ANI + horário da ligação';
+  }
+  // ROGUE: a chamada é achada no Conversation Finder (From = ANI + horário) e aberta como trace no Jaeger.
+  if (d && tipo === 'ura_rogue' && !valores.grafana_url) {
+    valores.grafana_url = 'https://grafana-mc1-rogue.hml-sp.claro.internal';
+    valores.grafana_painel = 'https://grafana-mc1-rogue.hml-sp.claro.internal/d/OBHSegzGK/conversation-finder?orgId=1';
+    valores.grafana_fonte = 'Jaeger (traces)';
+    valores.grafana_chave_busca = 'From (ANI) + horário → ConversationId → trace';
+  }
   _autoSalvarConfig();
   renderizarAutomacao();
 }
@@ -442,7 +466,9 @@ async function iniciarAutomacao(restaurando) {
   if (restaurando) {
     try {
       const sel = await dbGet('estado', 'automacao_sel');
-      if (Array.isArray(sel)) autoSelecao = new Set(sel);
+      const ids = new Set(((cacheModelagem && cacheModelagem.casos_teste) || []).map(c => c.ct_id));
+      // Seleção de outra modelagem (nenhum CT em comum) não vale: volta a "todos".
+      if (Array.isArray(sel) && sel.some(id => ids.has(id))) autoSelecao = new Set(sel.filter(id => ids.has(id)));
     } catch (e) {}
   }
   renderizarAutomacao();

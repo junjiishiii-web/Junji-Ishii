@@ -4,9 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.20" />
-  <script src="versao.js?v=2.20"></script>
-  <script src="automacao.js?v=2.20"></script>
+  <link rel="stylesheet" href="style.css?v=2.21" />
+  <script src="versao.js?v=2.21"></script>
+  <script src="automacao.js?v=2.21"></script>
+  <script src="conferencia.js?v=2.21"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -380,6 +381,7 @@
             <li><strong>Dados de execução</strong>: número a discar, origem (Avaya ou celular), ANI, servidor e diretório dos logs ou URL do Grafana, e um campo livre para as outras informações importantes. Os campos com <strong>*</strong> são obrigatórios.</li>
             <li><strong>CTs do roteiro</strong>: todos vêm marcados; use os filtros (novos, regressivos, pendentes) para escolher.</li>
             <li><strong>⬇️ Gerar roteiro de automação</strong>: baixa um .json com a configuração e, para cada CT, os steps, o DTMF sugerido, os prompts e os SPs esperados.</li>
+            <li><strong>Conferir evidência (URA Legado)</strong>: faça a ligação do CT, pegue os <strong>2 logs</strong> da chamada e carregue cada um no seu campo: ① <strong>Log URA</strong> <code>\\URA\lmcti\Data\UraLog\AAAA\MM\DD\URADebug_AAAA-MM-DD_node_canal.txt</code> e ② <strong>Log Integração</strong> <code>\\URA\lmcti\Data\IntegracaoLog\AAAA\MM\DD\IntegracaoDebug_AAAA-MM-DD_node_canal.txt</code> (mesmo final data_node_canal; a ferramenta avisa se não baterem). A ferramenta acha a sua chamada pelo ANI (dá para trocar na lista), mostra quais SPs esperados foram marcados (✓/✗), quais prompts tocaram e sugere OK ou Não OK. <em>Aplicar no CT</em> grava o status e anexa o trecho só daquela chamada como evidência, com os tokens das APIs mascarados.</li>
           </ol>
           <p>Os dados de execução ficam salvos <strong>neste navegador</strong> e valem para as próximas modelagens (separados por tecnologia). A seleção de CTs fica com a modelagem e é apagada por <em>Nova Modelagem</em>.</p>
           <p class="manual-dica">🔒 Não escreva senhas nos campos. O acesso com senha (VPN, servidor da URA, Grafana) será pedido pelo executor local, na sua máquina.</p>

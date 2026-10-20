@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.21',
+    data: '20/10/2026',
+    itens: [
+      'Automação (etapa 2) — conferência da URA Legado: depois de ligar, carregue os 2 logs da chamada — Log URA (UraLog\...\URADebug_AAAA-MM-DD_node_canal.txt) e Log Integração (IntegracaoLog\...\IntegracaoDebug_AAAA-MM-DD_node_canal.txt), cada um no seu campo; a ferramenta avisa se não forem do mesmo dia/node/canal. A ferramenta separa as chamadas do arquivo, acha a sua pelo ANI, confere os SPs e prompts esperados do CT e sugere OK / Não OK. "Aplicar no CT" grava o status e anexa o trecho da chamada como evidência (tokens mascarados).',
+      'Ao escolher a URA Legado, o caminho dos logs (\\\\URA\\lmcti\\Data\\UraLog\\AAAA\\MM\\DD\\URADebug_AAAA-MM-DD_node_canal.txt) é preenchido; no ROGUE, o Grafana (Conversation Finder / Jaeger).',
+    ],
+  },
+  {
     numero: '2.20',
     data: '20/10/2026',
     itens: [
