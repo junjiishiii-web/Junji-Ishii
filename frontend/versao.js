@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.23',
+    data: '20/10/2026',
+    itens: [
+      'Execução dos Testes: cada CT ganhou o botão 🔎 Conferir evidência (ao lado de Anexar evidência). Ele abre a conferência já no CT — carregue o log da URA Legado ou o trace do ROGUE, veja os SPs/prompts conferidos e confirme: status, comentário e evidências caem no próprio CT, sem trocar de aba. A tecnologia e a URA/esteira vêm da aba 🤖 Automação.',
+    ],
+  },
+  {
     numero: '2.22',
     data: '20/10/2026',
     itens: [

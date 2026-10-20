@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.22" />
-  <script src="versao.js?v=2.22"></script>
-  <script src="automacao.js?v=2.22"></script>
-  <script src="conferencia.js?v=2.22"></script>
+  <link rel="stylesheet" href="style.css?v=2.23" />
+  <script src="versao.js?v=2.23"></script>
+  <script src="automacao.js?v=2.23"></script>
+  <script src="conferencia.js?v=2.23"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -355,6 +355,7 @@
             <li>Em cada CT, escolha o <strong>Status</strong>: 🟡 Pendente, 🟢 OK, 🔴 Não OK ou ⚠️ Bloqueado.</li>
             <li>Em <strong>Bug aberto / comentários</strong>, escreva o nome do bug (ex.: <code>QANET-1234 — descrição</code>).</li>
             <li>Clique em <strong>＋ Anexar evidência</strong> e escolha os arquivos (.txt, .log, .csv, .json, .xml, imagens, .pdf, .docx, .xlsx).</li>
+            <li>Ou clique em <strong>🔎 Conferir evidência</strong>: carregue o log da URA Legado (Log URA + Log Integração) ou o trace do ROGUE e a ferramenta confere os SPs e prompts do CT, sugere o status e, ao confirmar, preenche status, comentário e evidências do CT. Antes, escolha a tecnologia e a URA / esteira na aba <em>🤖 Automação</em>.</li>
           </ol>
           <p><strong>Barra de evolução:</strong> fica no topo da aba e mostra a proporção de CTs por status. Passe o mouse sobre uma cor para ver a quantidade e a porcentagem.</p>
           <p><strong>Limites das evidências:</strong> até 25 MB por arquivo, 20 arquivos e 50 MB por CT, e 500 MB no total.</p>
@@ -429,6 +430,18 @@
 
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Conferência de evidência de um CT (aba Execução → "🔎 Conferir evidência"; lógica em conferencia.js) -->
+<div class="conf-modal" id="confModal" role="dialog" aria-modal="true" aria-labelledby="confModalTitulo"
+     onclick="if (event.target === this) confFecharModal()">
+  <div class="conf-modal-janela">
+    <div class="conf-modal-topo">
+      <h3 id="confModalTitulo">🔎 Conferir evidência</h3>
+      <button class="manual-fechar" onclick="confFecharModal()" title="Fechar (Esc)">✕ Fechar</button>
+    </div>
+    <div class="conf-modal-corpo" id="confModalCorpo"></div>
   </div>
 </div>
 
@@ -1558,6 +1571,8 @@
                    accept=".txt,.log,.csv,.json,.xml,.png,.jpg,.jpeg,.pdf,.docx,.xlsx"
                    onchange="anexarEvidencias('${idCt}', this)" />
                </label>
+               <button type="button" class="btn-evid btn-conferir" title="Carregar o log da URA / trace do ROGUE e conferir os SPs e prompts deste CT"
+                 onclick="confAbrirModal('${idCt}')">🔎 Conferir evidência</button>
              </div>
            </div>`
         : '';

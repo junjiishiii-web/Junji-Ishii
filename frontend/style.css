@@ -809,3 +809,14 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 .conf-detalhe summary { cursor: pointer; font-weight: 600; color: var(--clr-navy); margin-bottom: 8px; }
 .conf-arq-ok { font-size: 11px; font-weight: 500; color: #2E7D16; font-style: normal; }
 .conf-alerta { font-size: 12px; color: #6B4E00; background: #FFF6D6; border: 1px solid #E8D48A; border-radius: var(--radius-sm); padding: 8px 12px; margin: 0 0 10px; }
+.btn-conferir { margin-left: 6px; font-family: inherit; }
+.conf-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 20px; }
+.conf-modal.aberto { display: flex; }
+.conf-modal-janela { background: var(--clr-surface); color: #222; width: min(960px, 100%); max-height: 100%; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+.conf-modal-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; background: #1f4e79; color: #fff; }
+.conf-modal-topo h3 { margin: 0; font-size: 15px; }
+.conf-modal-corpo { padding: 16px 18px 20px; overflow: auto; }
+.conf-ct-fixo { font-size: 13px; padding: 7px 9px; background: var(--clr-white); border: 1px solid var(--clr-muted); border-radius: var(--radius-sm); }
+.conf-ct-fixo small { display: block; color: #666; font-size: 11px; margin-top: 2px; }
+.conf-toast { position: fixed; right: 20px; bottom: 20px; z-index: 2100; background: #245C10; color: #fff; font-size: 13px; font-weight: 600; padding: 10px 16px; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+@media (max-width: 600px) { .conf-modal { padding: 0; } .conf-modal-janela { height: 100%; border-radius: 0; } }

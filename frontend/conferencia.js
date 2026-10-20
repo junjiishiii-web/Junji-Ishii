@@ -131,20 +131,39 @@ function confCaminhosLog(ura) {
   };
 }
 
+// CT fixo quando a conferência é aberta pelo botão do próprio CT (aba Execução dos Testes).
+let confModalCt = '';
+
 function renderizarConferencia() {
-  const raiz = document.getElementById('autoConferencia');
+  const raiz = document.getElementById(confModalCt ? 'confModalCorpo' : 'autoConferencia');
   if (!raiz) return;
   const tipo = autoConfig.tipo;
   // Trocou de tecnologia: o que foi carregado para a outra não vale aqui.
   if (confEstado.tipo !== tipo) confEstado = { tipo, ctId: confEstado.ctId, ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
-  if (tipo !== 'ura_legado' && tipo !== 'ura_rogue') { raiz.innerHTML = ''; return; }
+  if (tipo !== 'ura_legado' && tipo !== 'ura_rogue') {
+    raiz.innerHTML = confModalCt
+      ? `<p class="conf-alerta">⚠️ ${tipo === 'chatbot' ? 'A conferência do ChatBOT ainda não está disponível.' : 'Escolha primeiro a tecnologia (URA Legado ou URA ROGUE) e a URA / esteira na aba <strong>🤖 Automação</strong>.'}</p>
+         <button class="btn-export-pdf" onclick="confIrParaAutomacao()">Ir para a aba Automação</button>`
+      : '';
+    return;
+  }
   const casos = _autoCasosSelecionados();
-  if (!casos.find(c => c.ct_id === confEstado.ctId)) confEstado.ctId = casos.length ? casos[0].ct_id : '';
   const ch = confEstado.chamadas[confEstado.idx];
-  const seletorCt = `<label class="auto-campo"><span>CT executado</span>
+  let seletorCt;
+  if (confModalCt) {
+    confEstado.ctId = confModalCt;
+    const c = (cacheModelagem.casos_teste || []).find(x => x.ct_id === confModalCt) || {};
+    const destino = _autoDestinoEscolhido(tipo);
+    seletorCt = `<div class="auto-campo"><span>CT executado</span>
+        <div class="conf-ct-fixo"><strong>${escHtml(confModalCt)}</strong> — ${escHtml(c.estado || '')}
+          <small>${escHtml(AUTO_TIPOS[tipo].rotulo)}${destino ? ' · ' + escHtml(destino.nome) : ''}</small></div></div>`;
+  } else {
+    if (!casos.find(c => c.ct_id === confEstado.ctId)) confEstado.ctId = casos.length ? casos[0].ct_id : '';
+    seletorCt = `<label class="auto-campo"><span>CT executado</span>
         <select class="auto-input" onchange="confEscolherCt(this.value)">
           ${casos.map(c => `<option value="${escHtml(c.ct_id)}" ${c.ct_id === confEstado.ctId ? 'selected' : ''}>${escHtml(c.ct_id)} — ${escHtml(c.estado)}</option>`).join('')}
         </select></label>`;
+  }
 
   if (tipo === 'ura_rogue') {
     const grafana = _autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal';
@@ -330,8 +349,37 @@ async function confAplicar() {
   const nota = `[Auto ${ch.inicio}] ${r.motivo}`;
   salvarDadosExecucao(caso.ct_id, 'comments', atual ? `${atual} | ${nota}` : nota);
   await anexarEvidencias(caso.ct_id, { files: arquivos, value: '' });
-  alert(`${caso.ct_id}: status ${r.sugestao === 'pendente' ? 'mantido' : 'atualizado'} e evidência anexada (aba Execução dos Testes).`);
+  const msg = `${caso.ct_id}: status ${r.sugestao === 'pendente' ? 'mantido' : 'atualizado'} e ${arquivos.length} evidência(s) anexada(s)`;
+  if (confModalCt) { confFecharModal(); _confAvisoRapido(msg + '.'); }
+  else alert(msg + ' (aba Execução dos Testes).');
 }
+
+/* ─── janela aberta pelo botão "🔎 Conferir evidência" do CT ─── */
+function confAbrirModal(ctId) {
+  confModalCt = ctId;
+  document.getElementById('confModalTitulo').textContent = `🔎 Conferir evidência — ${ctId}`;
+  document.getElementById('confModal').classList.add('aberto');
+  renderizarConferencia();
+}
+function confFecharModal() {
+  confModalCt = '';
+  document.getElementById('confModal').classList.remove('aberto');
+  document.getElementById('confModalCorpo').innerHTML = '';
+  renderizarConferencia();
+}
+function confIrParaAutomacao() {
+  confFecharModal();
+  const btn = [...document.querySelectorAll('#tabBar .tab-btn')].find(b => (b.getAttribute('onclick') || '').includes("'tabAutomacao'"));
+  if (btn) switchExcelTab('tabAutomacao', btn);
+}
+function _confAvisoRapido(texto) {
+  const el = document.createElement('div');
+  el.className = 'conf-toast';
+  el.textContent = '✓ ' + texto;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && confModalCt) confFecharModal(); });
 
 /* ─── ROGUE: trace do Jaeger exportado do Grafana ───
    Cada passo da conversa é um span "Dialog" com o estado (condition.state), o SP da
