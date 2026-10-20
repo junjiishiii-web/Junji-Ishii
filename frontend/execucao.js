@@ -42,11 +42,21 @@ function execIniciarPlano() {
     ${falta ? `<p class="conf-alerta">⚠️ ${falta}</p><button class="btn-export-pdf" onclick="execFechar(); confIrParaAutomacao();">Ir para a aba Automação</button>` : `
     <p class="bi-nota">${escHtml(AUTO_TIPOS[autoConfig.tipo].rotulo)} · ${escHtml(_autoDestinoEscolhido(autoConfig.tipo).nome)} · discar <strong>${escHtml(autoNumeroDiscar(autoConfig.tipo))}</strong></p>
     <p class="bi-nota">A ferramenta mostra um CT por vez: você liga, segue os passos e clica em <strong>Terminei a ligação</strong>; ela busca a evidência, confere e grava o resultado, e passa para o próximo. Dá para pular, pausar e retomar depois.</p>
+    <div class="exec-g-auto" id="execAutoBloco">
+      <div class="exec-g-rotulo">🤖 Execução automática (o executor liga pelo Avaya e digita os passos)</div>
+      <div id="execAutoStatus" class="exec-g-dica">Procurando o executor nesta máquina…</div>
+      <div class="exec-g-opcoes">
+        <button class="btn-export-pdf btn-iniciar-plano" id="btnAutoPend" disabled onclick="execAutoComecar('pendentes')">🤖 Automático — pendentes (${pendentes.length})</button>
+        <button class="btn-export-pdf exec-g-sec" id="btnAutoTodos" disabled onclick="execAutoComecar('todos')">🤖 Automático — todos (${casos.length})</button>
+      </div>
+    </div>
+    <div class="exec-g-rotulo">Ou execução guiada (você liga)</div>
     <div class="exec-g-opcoes">
-      <button class="btn-export-pdf" ${pendentes.length ? '' : 'disabled'} onclick="execComecar('pendentes')">▶ Só os pendentes (${pendentes.length})</button>
-      <button class="btn-export-pdf exec-g-sec" ${casos.length ? '' : 'disabled'} onclick="execComecar('todos')">▶ Todos os selecionados (${casos.length})</button>
+      <button class="btn-export-pdf exec-g-sec" ${pendentes.length ? '' : 'disabled'} onclick="execComecar('pendentes')">▶ Guiada — pendentes (${pendentes.length})</button>
+      <button class="btn-export-pdf exec-g-sec" ${casos.length ? '' : 'disabled'} onclick="execComecar('todos')">▶ Guiada — todos (${casos.length})</button>
     </div>
     <p class="exec-g-dica">Os CTs do plano são os marcados em “CTs que entram no roteiro”, na aba Automação.</p>`}`);
+  if (!falta) _execAtualizarStatusAuto(pendentes.length, casos.length);
 }
 
 function execComecar(modo) {

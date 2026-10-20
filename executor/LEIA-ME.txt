@@ -1,0 +1,24 @@
+MODELER ASSISTANT - EXECUTOR DE TESTES (Avaya one-X)
+
+O que faz
+  Liga pelo Avaya one-X Communicator e digita os passos de cada CT da modelagem,
+  sozinho. Na URA Legado acompanha o log da URA (\URA\lmcti\Data\UraLog) em tempo
+  real para digitar no momento certo e devolve o log da chamada ao Modeler, que
+  confere os SPs e grava o resultado. Nao usa o mouse nem o teclado.
+
+Requisitos
+  - Windows, na VPN da Claro
+  - Avaya one-X Communicator aberto e logado (com o teclado numerico visivel)
+  - Python 3.10 ou superior (com "Add Python to PATH")
+
+Como usar
+  1. Extraia este .zip numa pasta (ex.: Documentos\ModelerExecutor).
+  2. Dois cliques em iniciar_executor.bat (a 1a vez prepara o ambiente).
+  3. Deixe a janela aberta. No Modeler: aba Automacao > Iniciar execucao do plano
+     > Automatico.
+
+Problemas comuns
+  - "Executor nao encontrado": a janela do executor nao esta aberta.
+  - "one-X nao esta aberto": abra e faca login no Avaya one-X.
+  - "Tecla nao esta visivel": abra o teclado numerico no one-X.
+  - Chrome perguntando sobre "dispositivos da rede local": clique em Permitir.

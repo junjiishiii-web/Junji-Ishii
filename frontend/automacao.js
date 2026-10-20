@@ -277,12 +277,17 @@ function renderizarAutomacao() {
       </div>
     </section>
     ${tipo === 'ura_legado' || tipo === 'ura_rogue' ? `<section class="auto-secao conf-secao">
+      <h4 class="auto-secao-titulo">${proximoNumero()} Executor automático (Avaya one-X) <span class="auto-etapa">Etapa 4</span></h4>
+      <div id="autoExecutor"></div>
+    </section>
+    <section class="auto-secao conf-secao">
       <h4 class="auto-secao-titulo">${proximoNumero()} Conferir evidência da ligação <span class="auto-etapa">Etapa 2</span></h4>
       <div id="autoConferencia"></div>
     </section>` : ''}`;
 
   _autoRenderTabela();
   _autoAtualizarProntidao();
+  if (typeof renderizarExecutorAuto === 'function') renderizarExecutorAuto();
 }
 
 // Número a discar sempre vem da URA / esteira escolhida (travado).

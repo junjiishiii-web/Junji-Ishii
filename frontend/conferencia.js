@@ -11,6 +11,7 @@
 
 const CONF_LINHA = /^\[(\d{2}\/\d{2}\/\d{4})\]\[(\d{2}:\d{2}:\d{2})\]\[[^\]]*\]\[([^\]]*)\]\[(\d+)\]\[(\d+)\]->(.*)$/;
 
+let confSilencioso = false;   // true durante a execução automática (execucao.js)
 let confEstado = { tipo: '', ctId: '', ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
 
 function _confNovaChamada(data, hora, canal, transacao) {
@@ -391,6 +392,7 @@ async function confAplicar() {
   salvarDadosExecucao(caso.ct_id, 'comments', atual ? `${atual} | ${nota}` : nota);
   await anexarEvidencias(caso.ct_id, { files: arquivos, value: '' });
   const msg = `${caso.ct_id}: status ${r.sugestao === 'pendente' ? 'mantido' : 'atualizado'} e ${arquivos.length} evidência(s) anexada(s)`;
+  if (confSilencioso) return r.sugestao;   // execução automática: sem janela nem aviso
   if (confModalCt) { confFecharModal(); _confAvisoRapido(msg + '.'); }
   else alert(msg + ' (aba Execução dos Testes).');
 }
@@ -540,7 +542,7 @@ function _confUsarTrace(texto, nome, manual) {
   if (!ch || !ch.sps.length) return 'Não encontrei a jornada da conversa neste trace. Confira se é o trace da ligação (Explore → Jaeger).';
   const ani = _autoValor('ura_rogue', 'ani');
   if (ani && ch.ani && !_confAniBate(ch.ani, ani)
-      && !confirm(`O ANI do trace (${ch.ani}) é diferente do ANI configurado (${ani}). Usar este trace mesmo assim?`)) return '';
+      && !confSilencioso && !confirm(`O ANI do trace (${ch.ani}) é diferente do ANI configurado (${ani}). Usar este trace mesmo assim?`)) return '';
   confEstado.trace = { nome, texto, manual: !!manual };
   confEstado.chamadas = [ch];
   confEstado.idx = 0;

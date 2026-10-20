@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.32" />
-  <script src="versao.js?v=2.32"></script>
-  <script src="automacao.js?v=2.32"></script>
-  <script src="conferencia.js?v=2.32"></script>
-  <script src="execucao.js?v=2.32"></script>
+  <link rel="stylesheet" href="style.css?v=2.33" />
+  <script src="versao.js?v=2.33"></script>
+  <script src="automacao.js?v=2.33"></script>
+  <script src="conferencia.js?v=2.33"></script>
+  <script src="execucao.js?v=2.33"></script>
+  <script src="execucao_auto.js?v=2.33"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -198,6 +199,7 @@
 
     <!-- MASSA DE TESTES -->
     <div class="sheet-panel" id="tabMassa">
+      <div class="massa-padrao" id="massaPadrao"></div>
       <table class="data-table">
         <thead>
           <tr>
@@ -205,7 +207,7 @@
             <th style="width:76px;">Bloco</th>
             <th>Descrição (Produto / Segmento / VDN)</th>
             <th>Perfil / Condição de Entrada</th>
-            <th style="width:180px;">Contrato (Claro)</th>
+            <th style="width:300px;">Massa de teste (usada na automação)</th>
             <th style="width:130px;">Avaliação</th>
             <th>Comentários / Evidências</th>
           </tr>
@@ -818,6 +820,48 @@
       btn.disabled = false;
       btn.textContent = original;
     }
+  }
+
+  /* ─── massa de teste por CT (usada pela automação para digitar CPF, CEP…) ─── */
+  const MASSA_CAMPOS = [
+    { id: 'cpf', rotulo: 'CPF/CNPJ' },
+    { id: 'contrato', rotulo: 'Contrato' },
+    { id: 'cep', rotulo: 'CEP' },
+    { id: 'numero', rotulo: 'Nº casa' },
+  ];
+  function massaDoCt(ctId) {
+    const propria = (avaliacoesQA[ctId] || {}).massa || {};
+    const padrao = (avaliacoesQA.__massa_padrao || {}).massa || {};
+    const m = {};
+    MASSA_CAMPOS.forEach(c => { m[c.id] = String(propria[c.id] || padrao[c.id] || '').trim(); });
+    return m;
+  }
+  function htmlMassaCt(ctId) {
+    const m = (avaliacoesQA[ctId] || {}).massa || {};
+    const padrao = (avaliacoesQA.__massa_padrao || {}).massa || {};
+    const id = escHtml(ctId);
+    return `<div class="massa-grade">${MASSA_CAMPOS.map(c => `
+      <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="numeric" value="${escHtml(m[c.id] || '')}"
+        placeholder="${escHtml(padrao[c.id] || '')}" oninput="salvarMassa('${id}', '${c.id}', this.value)" /></label>`).join('')}</div>`;
+  }
+  function salvarMassa(ctId, campo, valor) {
+    if (!avaliacoesQA[ctId]) avaliacoesQA[ctId] = ctId === '__massa_padrao' ? {} : { status: 'pendente', comments: '' };
+    avaliacoesQA[ctId].massa = { ...(avaliacoesQA[ctId].massa || {}), [campo]: valor };
+    // A massa padrão aparece como sugestão (placeholder) nos CTs sem massa própria.
+    if (ctId === '__massa_padrao') document.querySelectorAll('#massaTableBody tr').forEach(tr => {
+      const inp = tr.querySelectorAll('.massa-grade input')[MASSA_CAMPOS.findIndex(c => c.id === campo)];
+      if (inp) inp.placeholder = valor;
+    });
+    agendarSalvarEstado();
+  }
+  function renderizarMassaPadrao() {
+    const el = document.getElementById('massaPadrao');
+    if (!el) return;
+    const m = (avaliacoesQA.__massa_padrao || {}).massa || {};
+    el.innerHTML = `<strong>Massa padrão</strong> <span>usada nos CTs que não têm massa própria (CPF, contrato, CEP e número que a automação digita quando a URA pede)</span>
+      <div class="massa-grade">${MASSA_CAMPOS.map(c => `
+        <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="numeric" value="${escHtml(m[c.id] || '')}"
+          oninput="salvarMassa('__massa_padrao', '${c.id}', this.value)" /></label>`).join('')}</div>`;
   }
 
   /* ─── salvar avaliações ────────────────────────────────── */
@@ -1448,6 +1492,7 @@
     }).join('');
 
     renderizarBI(data);
+    renderizarMassaPadrao();
     renderizarPlanejamento(data);
 
     // Histórico de alterações
@@ -1476,7 +1521,7 @@
           <td>${escHtml(caso.bloco_nome)}</td>
           <td><strong>Estado: ${escHtml(caso.estado)}</strong></td>
           <td>${escHtml(caso.perfil)} | Validação de Chave sistêmica</td>
-          <td><input type="text" class="massa-input" placeholder="Cole o MSISDN ou Contrato Claro…" /></td>
+          <td>${htmlMassaCt(caso.ct_id)}</td>
           <td>
             <select class="eval-select ${stateQA.status}" id="eval-${escHtml(caso.ct_id)}"
               onchange="salvarDadosExecucao('${escHtml(caso.ct_id)}', 'status', this.value)">

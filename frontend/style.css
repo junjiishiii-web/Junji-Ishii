@@ -875,3 +875,15 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 .exec-g-resumo .ok strong { color: #2E7D16; } .exec-g-resumo .nok strong { color: #C0392B; }
 .exec-g-resumo .blocked strong { color: #B7770D; } .exec-g-resumo .pendente strong { color: #666; }
 @media (max-width: 600px) { .exec-g-resumo { grid-template-columns: repeat(2, 1fr); } }
+
+/* ─── Massa de teste por CT ─── */
+.massa-padrao { background: #fff; border: 1px solid var(--clr-blue-light); border-left: 4px solid var(--clr-navy); border-radius: var(--radius-sm); padding: 10px 14px; margin: 0 0 14px; font-size: 12px; }
+.massa-padrao > span { color: #666; margin-left: 6px; }
+.massa-padrao .massa-grade { margin-top: 8px; max-width: 560px; }
+.massa-grade { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 6px; }
+.massa-grade label { display: flex; flex-direction: column; gap: 2px; font-size: 10px; font-weight: 600; color: #555; }
+.massa-grade .massa-input { padding: 4px 6px; font-size: 11px; }
+
+.exec-g-auto { background: #F2F8EE; border: 1px solid #A9D98F; border-radius: var(--radius-sm); padding: 10px 14px; margin: 10px 0 14px; }
+.exec-g-estado { font-size: 11px; font-weight: 700; color: #fff; background: var(--clr-navy); border-radius: 10px; padding: 2px 10px; }
+.exec-g-log { background: #1e1e1e; color: #d4d4d4; font-size: 11px; line-height: 1.5; padding: 10px 12px; border-radius: var(--radius-sm); max-height: 260px; overflow: auto; white-space: pre-wrap; }

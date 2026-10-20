@@ -559,6 +559,28 @@ async def exportar_execucao_pdf(
     )
 
 
+_EXECUTOR = _HERE.parent / "executor"
+_EXECUTOR_ARQUIVOS = ("executor_avaya.py", "requirements.txt", "iniciar_executor.bat", "LEIA-ME.txt")
+
+
+@app.get("/api/executor/download")
+def baixar_executor():
+    """Pacote do executor local (liga pelo Avaya one-X) para a aba Automação."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for nome in _EXECUTOR_ARQUIVOS:
+            caminho = _EXECUTOR / nome
+            if not caminho.exists():
+                raise HTTPException(status_code=500, detail=f"Arquivo do executor ausente no servidor: {nome}")
+            z.write(caminho, arcname=f"ModelerExecutor/{nome}")
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="ModelerExecutor.zip"'},
+    )
+
+
 @app.get("/api/status-servidor")
 def status_servidor():
     """Usado apenas para diagnostico: quantas sessoes ativas o servidor tem agora."""

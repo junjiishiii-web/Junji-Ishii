@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.33',
+    data: '20/10/2026',
+    itens: [
+      'Automação (etapa 4) — execução automática pelo Avaya one-X: baixe o executor na aba 🤖 Automação (seção "Executor automático"), rode o iniciar_executor.bat e use ▶ Iniciar execução do plano → 🤖 Automático. Para cada CT o executor disca, digita o código da esteira (ROGUE), acompanha o log da URA em tempo real e digita as teclas de cada passo quando a URA toca o prompt (URA Legado), desliga e devolve o log da chamada; o site confere os SPs e grava status e evidência sozinho, e passa para o próximo CT.',
+      'Massa de Testes: cada CT ganhou campos de CPF/CNPJ, Contrato, CEP e Nº da casa (salvos), e uma massa padrão para todos; a automação digita esses dados quando o passo pede.',
+      'Segurança do executor: só aceita comandos do Modeler Assistant e só disca para os números das URAs de homologação cadastradas.',
+    ],
+  },
+  {
     numero: '2.32',
     data: '20/10/2026',
     itens: [

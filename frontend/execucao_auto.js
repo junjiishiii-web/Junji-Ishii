@@ -1,0 +1,185 @@
+/* ─── Execução AUTOMÁTICA: o executor local (executor/executor_avaya.py) liga pelo Avaya one-X ───
+   O site manda cada CT para http://127.0.0.1:47123/executar, acompanha /execucao e, ao
+   terminar, recebe o log da chamada (URA Legado) ou o trace (ROGUE). A conferência e a
+   gravação do resultado são as mesmas da conferência manual (conferencia.js), sem janela. */
+
+const EXECUTOR_URL = 'http://127.0.0.1:47123';
+const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
+let execAuto = { ativo: false, parar: false };
+
+async function execExecutorStatus() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch(`${EXECUTOR_URL}/status`, { signal: ctrl.signal });
+    clearTimeout(t);
+    const j = await r.json();
+    return j && j.executor === 'modeler-avaya' ? j : null;
+  } catch (e) { return null; }
+}
+
+async function _execAtualizarStatusAuto(nPend, nTodos) {
+  const el = document.getElementById('execAutoStatus');
+  if (!el) return;
+  const st = await execExecutorStatus();
+  const ok = st && st.onex_aberto;
+  el.innerHTML = !st
+    ? '⚠️ Executor não encontrado nesta máquina. Baixe e inicie o executor na aba <strong>🤖 Automação</strong> (seção “Executor automático”), com o Avaya one-X aberto.'
+    : (!st.onex_aberto
+      ? `⚠️ Executor v${escHtml(st.versao)} rodando, mas o <strong>Avaya one-X</strong> não está aberto. Abra e faça login.`
+      : `✓ Executor v${escHtml(st.versao)} pronto e Avaya one-X aberto.${st.ocupado ? ` (executando ${escHtml(st.ct_atual)})` : ''}`);
+  const b1 = document.getElementById('btnAutoPend'), b2 = document.getElementById('btnAutoTodos');
+  if (b1) b1.disabled = !ok || !nPend;
+  if (b2) b2.disabled = !ok || !nTodos;
+}
+
+function _norm2(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, ''); }
+
+// Teclas de cada passo: o DTMF da modelagem ou, quando o passo pede um dado (CPF, CEP…), a massa do CT.
+function _execDigitosDoPasso(passo, massa) {
+  if (passo.dtmf_sugerido) return passo.dtmf_sugerido;
+  const t = _norm2(`${passo.acao} ${passo.estado} ${passo.prompt_id || ''}`);
+  if (/cep/.test(t)) return massa.cep;
+  if (/numcasa|numerocasa|numeroendereco|numerodaresidencia/.test(t)) return massa.numero;
+  if (/contrato|codigonet|codnet/.test(t)) return massa.contrato;
+  if (/cpf|cnpj|documento/.test(t)) return massa.cpf;
+  return '';
+}
+
+function _execPedido(ctId) {
+  const tipo = autoConfig.tipo;
+  const destino = _autoDestinoEscolhido(tipo);
+  const roteiro = _autoCasoParaRoteiro(_execCaso(ctId));
+  const massa = massaDoCt(ctId);
+  return {
+    ct_id: ctId,
+    tecnologia: tipo,
+    numero: String(autoNumeroDiscar(tipo)).replace(/\D/g, ''),
+    dtmf_ao_atender: destino && destino.codigo ? destino.codigo : '',
+    ura: tipo === 'ura_legado' && destino ? { host: destino.host || destino.nome, node: destino.node } : null,
+    ani: _autoValor(tipo, 'ani'),
+    passos: roteiro.passos.map(p => ({ n: p.n, estado: p.estado, prompt_id: p.prompt_id, acao: p.acao, digitos: _execDigitosDoPasso(p, massa) || '' })),
+    grafana_url: _autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal',
+    grafana_ds_uid: GRAFANA_DS_UID_ROGUE,
+  };
+}
+
+async function execAutoComecar(modo) {
+  const casos = _autoCasosSelecionados();
+  execFila = (modo === 'pendentes' ? casos.filter(c => _execStatus(c.ct_id) === 'pendente') : casos).map(c => c.ct_id);
+  if (!execFila.length) return;
+  execPos = 0;
+  execInicio = new Date();
+  execAtivo = false;           // a execução guiada não reage à conferência
+  execAuto = { ativo: true, parar: false };
+  while (execPos < execFila.length && !execAuto.parar) {
+    await _execAutoUmCt(execFila[execPos]);
+    execPos++;
+  }
+  execAuto.ativo = false;
+  _execResumo(execAuto.parar);
+}
+
+function execAutoParar() {
+  execAuto.parar = true;
+  fetch(`${EXECUTOR_URL}/parar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+}
+
+function _execAutoTela(ctId, pedido, estado, eventos) {
+  const caso = _execCaso(ctId);
+  const faltaMassa = pedido.passos.filter(p => /cpf|cnpj|cep|contrato/i.test(`${p.acao} ${p.estado}`) && !p.digitos);
+  _execAbrir(`
+    <div class="exec-g-progresso">
+      <span>🤖 CT ${execPos + 1} de ${execFila.length}</span>
+      <div class="exec-g-barra"><div style="width:${Math.round((execPos / execFila.length) * 100)}%"></div></div>
+    </div>
+    <h4 class="exec-g-titulo">${escHtml(ctId)} — ${escHtml(caso.estado)} <span class="exec-g-estado">${escHtml(estado)}</span></h4>
+    <p class="exec-g-dica">Discando <code>${escHtml(pedido.numero)}</code>${pedido.dtmf_ao_atender ? ` · esteira <code>${escHtml(pedido.dtmf_ao_atender)}</code>` : ''} ·
+      teclas: <code>${escHtml(pedido.passos.filter(p => p.digitos).map(p => p.digitos).join(' → ') || '—')}</code></p>
+    ${faltaMassa.length ? `<p class="conf-alerta">⚠️ Sem massa para ${faltaMassa.map(p => 'step ' + p.n).join(', ')} — preencha na aba Massa de Testes.</p>` : ''}
+    <pre class="exec-g-log">${escHtml((eventos || []).join('\n') || '…')}</pre>
+    <div class="exec-g-acoes"><button class="btn-export-pdf exec-g-sec" onclick="execAutoParar()">⏹ Parar a execução</button></div>`,
+    `🤖 Execução automática — ${ctId}`);
+}
+
+async function _execAutoUmCt(ctId) {
+  const pedido = _execPedido(ctId);
+  _execAutoTela(ctId, pedido, 'enviando ao executor', []);
+  let r = null;
+  try {
+    r = await fetch(`${EXECUTOR_URL}/executar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pedido) });
+  } catch (e) { r = null; }
+  if (!r || !r.ok) {
+    const j = r ? await r.json().catch(() => ({})) : {};
+    execAuto.parar = true;
+    _execAutoTela(ctId, pedido, 'erro', [`Executor não respondeu: ${j.erro || 'confira se o executor está aberto'}`]);
+    await _aguardar(2500);
+    execPos--;   // o CT não foi executado: continua pendente
+    return;
+  }
+  let ex = null;
+  for (;;) {
+    await _aguardar(1500);
+    try { ex = await (await fetch(`${EXECUTOR_URL}/execucao`)).json(); } catch (e) { ex = null; }
+    if (!ex) { _execAutoTela(ctId, pedido, 'sem contato com o executor…', []); continue; }
+    _execAutoTela(ctId, pedido, { discando: 'discando', em_chamada: 'em chamada', concluida: 'conferindo', erro: 'erro' }[ex.estado] || ex.estado, ex.eventos);
+    if (ex.estado === 'concluida' || ex.estado === 'erro') break;
+  }
+  if (ex.estado === 'erro') {
+    salvarDadosExecucao(ctId, 'status', 'blocked');
+    salvarDadosExecucao(ctId, 'comments', `[Auto] erro na execução: ${ex.erro}`);
+    await _aguardar(1500);
+    return;
+  }
+  // Conferência automática com a evidência que o executor trouxe.
+  const res = ex.resultado || {};
+  confSilencioso = true;
+  try {
+    confEstado = { tipo: autoConfig.tipo, ctId, ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
+    let ok = false;
+    if (res.tipo === 'ura_legado' && res.ura_texto) {
+      const chs = confSepararChamadas(res.ura_texto);
+      if (chs.length) {
+        confEstado.ura = { nome: res.ura_arquivo || 'URADebug.txt', texto: res.ura_texto };
+        confEstado.integracao = res.integracao_texto ? { nome: res.integracao_arquivo || 'IntegracaoDebug.txt', texto: res.integracao_texto } : null;
+        confEstado.chamadas = chs;
+        confEstado.idx = 0;
+        ok = true;
+      }
+    } else if (res.tipo === 'ura_rogue' && res.trace) {
+      ok = _confUsarTrace(JSON.stringify(res.trace), 'trace (executor)') === true;
+      confEstado.ctId = ctId;
+    }
+    if (ok) {
+      const sug = await confAplicar();
+      _execAutoTela(ctId, pedido, `resultado: ${_STATUS_ROTULO[sug] || sug}`, ex.eventos);
+    } else {
+      salvarDadosExecucao(ctId, 'comments', `[Auto ${new Date().toLocaleTimeString('pt-BR')}] chamada feita, sem evidência automática (${res.erro || 'log não encontrado'}) — confira manualmente.`);
+      _execAutoTela(ctId, pedido, 'sem evidência automática', ex.eventos);
+    }
+  } finally {
+    confSilencioso = false;
+  }
+  await _aguardar(1500);
+}
+
+/* ─── seção "Executor automático" da aba Automação ─── */
+async function renderizarExecutorAuto() {
+  const el = document.getElementById('autoExecutor');
+  if (!el) return;
+  el.innerHTML = `
+    <p class="bi-nota">Para a ferramenta <strong>ligar sozinha</strong> pelo Avaya one-X e digitar os passos de cada CT, rode o executor nesta máquina (na VPN, com o one-X aberto e logado). Ele não usa o mouse nem o teclado: dá para continuar trabalhando.</p>
+    <div class="exec-g-ligar">
+      <div><div class="exec-g-rotulo">Status</div><div id="autoExecutorStatus" class="exec-g-dica">verificando…</div></div>
+      <a class="btn-export-pdf exec-g-btn-ligar" href="${API}/api/executor/download" download>⬇️ Baixar executor (.zip)</a>
+    </div>
+    <ol class="exec-g-dica">
+      <li>Baixe o .zip, extraia numa pasta (ex.: Documentos\\ModelerExecutor) e dê dois cliques em <code>iniciar_executor.bat</code>. Na primeira vez ele prepara tudo (precisa do Python instalado).</li>
+      <li>Deixe a janela preta aberta. Volte aqui e use <strong>▶ Iniciar execução do plano → 🤖 Automático</strong>.</li>
+      <li>Preencha a massa (CPF, CEP, contrato…) na aba <strong>Massa de Testes</strong> para os passos que pedem dados.</li>
+    </ol>`;
+  const st = await execExecutorStatus();
+  const s = document.getElementById('autoExecutorStatus');
+  if (s) s.innerHTML = !st ? '⚪ Executor não está rodando nesta máquina.'
+    : (st.onex_aberto ? `🟢 Executor v${escHtml(st.versao)} rodando · Avaya one-X aberto` : `🟡 Executor v${escHtml(st.versao)} rodando · abra o Avaya one-X`);
+}
