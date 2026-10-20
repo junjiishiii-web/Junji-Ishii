@@ -49,7 +49,9 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     eep_raw = _bytes_of(eep_bytes) if eep_bytes else b""
 
     sem_eep = not eep_raw
-    modo_completo = modo_completo or pede_spec_completa(ivr_code, not sem_eep)
+    modo_completo = modo_completo or (tipo_a and pede_spec_completa(ivr_code, not sem_eep))
+    if not tipo_a and sem_eep:
+        raise ValueError("Transferência pura precisa do EEP (tabela de cenários com os IDs/targets de transferência).")
     if modo_completo:
         ivr_code = None  # SPEC completa: nao ha projeto/IVR para localizar
         tipo_a = True
@@ -77,7 +79,7 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     ivr_efetivo = spec_model.get("ivr_resolvido") or ivr_code
 
     avisar(12, "Detectando a(s) cor(es) da versão vigente...")
-    cores_detectadas = [] if modo_completo else color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
+    cores_detectadas = [] if (modo_completo or not tipo_a) else color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
     # Cores que marcam as linhas dos estados no versionamento (ex.: amarelo) tambem identificam as
     # celulas alteradas nas abas de estado, mesmo quando o cabecalho do bloco usa outra cor.
     for cor_estado in spec_model["versionamento"].get("cores_estados", []):

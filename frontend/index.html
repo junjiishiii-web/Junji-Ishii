@@ -45,7 +45,7 @@
         <div class="dropdown-wrapper">
           <select id="projetoTipoSelect">
             <option value="true" selected>Alteração de SPEC</option>
-            <option value="false">Transferência Pura</option>
+            <option value="false">Transferência Pura (IDs do EEP)</option>
           </select>
           <img src="assets/dropdown.svg" class="dropdown-icon" alt="" />
         </div>
@@ -604,8 +604,13 @@
       alert("Por favor, selecione e carregue o arquivo da SPEC.");
       return;
     }
+    if (document.getElementById('projetoTipoSelect').value === 'false' && !scopeLoaded) {
+      alert("Transferência Pura usa a tabela de cenários/IDs de transferência do EEP: carregue o EEP.");
+      return;
+    }
     const ivrTxt = document.getElementById('ivrCodeInput').value.trim();
-    const pede100 = (!ivrTxt && !scopeLoaded) || /^\s*(mapear|100|completa|tudo|todos|all)/i.test(ivrTxt);
+    const transfPura = document.getElementById('projetoTipoSelect').value === 'false';
+    const pede100 = !transfPura && ((!ivrTxt && !scopeLoaded) || /^\s*(mapear|100|completa|tudo|todos|all)/i.test(ivrTxt));
     if (pede100 && !confirm(
       'Modo "Mapear 100% da SPEC": a ferramenta vai modelar TODOS os estados e TODAS as saídas da SPEC, sem filtrar por IVR/versão.\n\n' +
       'Isso pode gerar milhares de CTs e levar vários minutos.\n\nDeseja continuar?')) return;

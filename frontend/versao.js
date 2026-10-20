@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.19',
+    data: '20/10/2026',
+    itens: [
+      'Transferência Pura (projeto sem alteração de navegação): lê a tabela de cenários com TARGET/VDN/ID de transferência do EEP (PDF, docx ou xlsx) e gera 1 CT por cenário, percorrendo a SPEC (que serve só de base de navegação) pelo caminho mais fácil até a transferência ATH e validando o ID esperado. Resumo no padrão do Jira ("Dado Ind.Atend.101 do Grupo 1…, Quando … na transferencia para ATH, Então é direcionado para taxonomia 2730835") e último step "Encerrar a chamada e validar o target". O IVR do projeto não precisa estar no versionamento da SPEC.',
+    ],
+  },
+  {
     numero: '2.25',
     data: '20/10/2026',
     itens: [

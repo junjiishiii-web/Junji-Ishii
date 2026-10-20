@@ -867,7 +867,7 @@ class GeradorCT:
         tipo, codigo = sp
         self._sp_bi_cobertura.setdefault(codigo, []).append(ct_id)
 
-    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None, sp_legado=False):
+    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None, sp_legado=False, acao_final=None, resultado_inicial=None):
         if not caminho:
             self.revisao_necessaria.append(
                 {
@@ -893,10 +893,12 @@ class GeradorCT:
         sp_pendente = sp_pendente or (sp_final is None and self.tipo_a and not (regressivo or sp_legado))
 
         resultado_txt = _formatar_resultado_esperado(steps, sp_final, sp_pendente)
+        if resultado_inicial:
+            resultado_txt = f"{resultado_inicial}\n{resultado_txt}"
         steps.append(
             {
                 "step_num": len(steps) + 1,
-                "acao": "Encerrar a chamada",
+                "acao": acao_final or "Encerrar a chamada",
                 "estado": "-",
                 "prompt_id": "—",
                 "prompt_texto": "—",
@@ -1386,7 +1388,133 @@ class GeradorCT:
 
     # ---------- L12/L13: cobertura por produto (Tipo B, regra de transferencia pura) ----------
 
+    def gerar_cts_transferencia(self):
+        """
+        Projeto SO de transferencia (sem alteracao de navegacao): a SPEC e a BASE do caminho e o EEP traz a tabela de
+        cenarios com o TARGET/ID de transferencia ATH. Um CT por cenario: percorre a SPEC pelo caminho mais facil
+        ate a transferencia ATH (preferindo a transicao cuja condicao combina com o cenario: credito, cliente movel,
+        cabeamento...) e valida o ID de transferencia esperado.
+        """
+        cenarios = self.eep_model.get("cenarios_transferencia") or []
+        estados = self.spec_model["estados"]
+        mapa = self.spec_model["mapa_rotas"]
+
+        # todas as transicoes que levam a um estado de transferencia
+        entradas_transfer = []
+        for origem, dados_origem in estados.items():
+            for t in dados_origem.get("transicoes", []):
+                destino = resolver_destino(mapa, t.get("destino"))
+                if destino and _TERMINAL_RE.match(destino) and not destino.lower().startswith("_end_"):
+                    entradas_transfer.append((origem, t, destino))
+        if not entradas_transfer:
+            self.revisao_necessaria.append(
+                {
+                    "tipo": "sem_estado_transferencia",
+                    "detalhe": "A SPEC não tem transições para estados de transferência (Transfer*): não há onde validar o ID de "
+                    "transferência ATH. Confira se a SPEC enviada é a do fluxo que transfere.",
+                }
+            )
+            return
+        if not cenarios:
+            self.revisao_necessaria.append(
+                {
+                    "tipo": "sem_tabela_cenarios_transferencia",
+                    "detalhe": "Não encontrei no EEP uma tabela de cenários com o TARGET/VDN/ID de transferência. Gerei 1 CT por "
+                    "caminho distinto até a transferência; informe os IDs manualmente.",
+                }
+            )
+            cenarios = [
+                {"cenario": str(i + 1), "alvo": "", "rotulo_alvo": "ID de transferência", "campos": [("Origem", f"{o} → {d}")]}
+                for i, (o, _t, d) in enumerate(entradas_transfer[:30])
+            ]
+
+        def _feat(txt):
+            n = normalizar_chave(txt).replace("_", " ")
+            f = set()
+            if re.search(r"reprovad", n): f.add("cred_nok")
+            elif re.search(r"aprovad", n): f.add("cred_ok")
+            if re.search(r"nao (?:e )?(?:cliente )?(?:claro )?(?:movel|celular)|movel nao|celular nao|numero movel nao", n): f.add("movel_nao")
+            elif re.search(r"movel|celular", n): f.add("movel_sim")
+            if re.search(r"nao cabead", n): f.add("cab_nao")
+            elif re.search(r"cabead", n): f.add("cab_sim")
+            if "timeout" in n: f.add("timeout")
+            if "brownfield" in n: f.add("brownfield")
+            if re.search(r"alto valor|servicegroupid", n): f.add("altovalor")
+            return f
+
+        conflitos = [("cred_ok", "cred_nok"), ("movel_sim", "movel_nao"), ("cab_sim", "cab_nao")]
+
+        def _pontos(f_cen, t):
+            f_t = _feat(" ".join(t.get("path") or [t.get("condicao") or ""]))
+            ganho = len(f_cen & f_t)
+            perda = sum(1 for a, b in conflitos if (a in f_cen and b in f_t) or (b in f_cen and a in f_t))
+            return ganho - 2 * perda
+
+        rotulo_alvo = (cenarios[0].get("rotulo_alvo") or "Target").strip(": ") or "Target"
+        ultimo_grupo, bloco_idx, bloco_nome = None, 0, ""
+        for i, cen in enumerate(cenarios):
+            self._progresso(int(5 + 80 * i / max(len(cenarios), 1)), f"Gerando cenário de transferência {i + 1} de {len(cenarios)}...")
+            campos = cen.get("campos") or []
+            grupo = next((v for k, v in campos if re.search(r"grupo", k, re.IGNORECASE) and not re.search(r"crit", k, re.IGNORECASE)), "")
+            if grupo != ultimo_grupo or not bloco_idx:
+                bloco_idx += 1
+                bloco_nome = f"Bloco {bloco_idx}"
+                self._blocos.append(
+                    {"numero": bloco_idx, "nome": bloco_nome, "cor": self._cor_bloco(bloco_idx), "titulo": f"{bloco_nome} — {grupo or 'Transferência ATH'}"}
+                )
+                ultimo_grupo = grupo
+
+            texto_cen = " ".join(v for k, v in campos if not re.fullmatch(r"cen[aá]rio", k.strip(), re.IGNORECASE))
+            f_cen = _feat(texto_cen)
+            melhor = None
+            for origem, t, destino in entradas_transfer:
+                pontos = _pontos(f_cen, t)
+                chave = (-pontos, _pontuar_transicao(t), len(t.get("path") or []))
+                if melhor is None or chave < melhor[0]:
+                    melhor = (chave, origem, t, destino, pontos)
+            _chave, origem, t, destino, pontos = melhor
+
+            restr = extrair_restricoes_sessao(t["condicao"])
+            caminho, perfil_ef = self._bfs(self.spec_model, origem, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr)
+            if not caminho:
+                caminho, perfil_ef = self._bfs(self.spec_model, origem, perfil_entrada="aninao")
+            if not caminho:
+                continue
+            completo = caminho + ([destino] if destino != caminho[-1] else [])
+            alvo = cen.get("alvo") or "—"
+            numero = cen.get("cenario") or str(i + 1)
+            descr_cond = "; ".join(f"{k}: {v}" for k, v in campos if not re.fullmatch(r"cen[aá]rio", k.strip(), re.IGNORECASE))
+
+            def _titulo(txt):
+                return re.sub(r"\s+", " ", str(txt).replace("–", " ").replace("-", " ")).strip().title()
+
+            grupo_txt = _titulo(grupo) if grupo else ""
+            valores = [v for k, v in campos if not re.search(r"cen[aá]rio|grupo|crit[eé]rio", k, re.IGNORECASE)]
+            movel = next((v for v in valores if re.search(r"m[oó]vel|celular", v, re.IGNORECASE)), "")
+            credito = next((v for v in valores if re.search(r"cr[eé]dito", v, re.IGNORECASE) and not re.search(r"n[aã]o se aplica", v, re.IGNORECASE)), "")
+            criterio = next((v for k, v in campos if re.search(r"crit[eé]rio", k, re.IGNORECASE)), "")
+            quando_partes = [movel, credito] if credito else [movel, (criterio[:60] if criterio else "")]
+            quando_txt = " ".join(p for p in quando_partes if p).strip() or descr_cond[:80]
+            inds = self.eep_model.get("indicadores") or []
+            ind = "101" if "101" in inds else (inds[0] if inds else "")
+            dado_txt = (f"Ind.Atend.{ind} " if ind else "") + (f"do {grupo_txt}" if grupo_txt else f"no cenário {numero}")
+            gherkin = (
+                f"Dado {dado_txt}, Quando {quando_txt} na transferencia para ATH, Então é direcionado para taxonomia {alvo}"
+            )
+            nota = "" if pontos > 0 else " [condições do cenário não localizadas na SPEC: caminho padrão até a transferência; preparar a massa conforme o EEP]"
+            self._add_ct(
+                bloco_idx, bloco_nome, destino,
+                f"Cenário {numero} — {descr_cond}",
+                perfil_ef, completo, regressivo=False, gherkin_override=gherkin,
+                transicao_final=t if len(completo) > len(caminho) else None,
+                sp_legado=True, restricoes=restr,
+                acao_final="Encerrar a chamada e validar o target",
+                resultado_inicial=f"{'Target' if rotulo_alvo.lower().startswith('target') else rotulo_alvo} {alvo}{nota}",
+            )
+
     def gerar_cts_tipo_b(self):
+        if self.eep_model.get("cenarios_transferencia") or self.eep_model.get("tipo_b_transferencia"):
+            return self.gerar_cts_transferencia()
         lista_abas = self.spec_model["lista_abas"]
         estados_transfer = [a for a in lista_abas if "transfer" in a.lower()]
         estado_alvo = estados_transfer[0] if estados_transfer else (lista_abas[0] if lista_abas else None)
@@ -2179,6 +2307,15 @@ class GeradorCT:
                 "sps_regressao": [],
                 "legenda": [],
                 "blocos": [],
+            }
+        if not self.tipo_a:
+            return {
+                "casos_teste": self.casos_teste,
+                "revisao_necessaria": self.revisao_necessaria,
+                "bi_marcacoes": [],
+                "sps_regressao": [],
+                "legenda": self.legenda_blocos(),
+                "blocos": self._blocos,
             }
         self._progresso(80, "Mapeando as variações de concat...")
         self.gerar_cts_concat()

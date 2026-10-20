@@ -196,6 +196,13 @@ def montar_planejamento(plano, eep_model, spec_model, ivr_code=None, tipo_a=True
             f"Concat: {len(cts_concat)} CT(s) cobrem as variações de montagem do prompt (por perfil de produtos, e as "
             "escadas REJ/RPT/SIL), conferindo a locução montada e o tempo de silêncio entre os trechos."
         )
+    cts_transf = [c for c in casos if str(c.get("alteracao_relatada") or "").startswith("Cenário")]
+    if cts_transf:
+        estrategia.insert(
+            0,
+            f"Projeto de transferência: {len(cts_transf)} CT(s), um por cenário do EEP; cada um percorre a SPEC (base de navegação) até a "
+            "transferência ATH e valida o ID/target esperado no CDR/log.",
+        )
     if perfis:
         estrategia.append(
             "Perfis de entrada exercitados: "

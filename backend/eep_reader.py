@@ -141,6 +141,93 @@ def _campos_do_formulario(texto):
     }
 
 
+_ALVO_RE = re.compile(r"\b(?:target|vdn|id\s*(?:de\s*)?transfer\w*|destino|fila|skill)\b", re.IGNORECASE)
+
+
+def _limpa(c):
+    return re.sub(r"\s+", " ", str(c if c is not None else "")).strip()
+
+
+def _cenarios_de_tabela(linhas):
+    """Tabelas do EEP com uma coluna de TARGET/VDN/ID de transferencia: cada linha vira um cenario
+    {cenario, alvo, campos:[(coluna, valor)]}. Celulas mescladas (Grupo/Criterio que valem para varias linhas)
+    sao propagadas para as linhas seguintes."""
+    linhas = [[_limpa(c) for c in l] for l in linhas if l]
+    cab_idx = next((i for i, l in enumerate(linhas[:3]) if any(_ALVO_RE.fullmatch(c.strip(": ")) or _ALVO_RE.match(c) for c in l if c)), None)
+    if cab_idx is None:
+        return []
+    cab = linhas[cab_idx]
+    idx_alvo = next(i for i, c in enumerate(cab) if c and (_ALVO_RE.fullmatch(c.strip(": ")) or _ALVO_RE.match(c)))
+    rotulo_alvo = cab[idx_alvo]
+    # cabecalho pode ocupar 2 linhas ("Cliente Claro" / "Movel")
+    rotulos = [c for c in cab if c]
+    if cab_idx + 1 < len(linhas):
+        extra = [c for c in linhas[cab_idx + 1] if c]
+        if extra and not any(re.search(r"\d{4,}", c) for c in extra) and len(extra) <= 2:
+            # junta a 2a linha de cabecalho ao rotulo anterior mais proximo
+            for e in extra:
+                for k, r in enumerate(rotulos):
+                    if r.lower().endswith("claro"):
+                        rotulos[k] = f"{r} {e}"
+                        break
+                else:
+                    rotulos[-1] = f"{rotulos[-1]} {e}"
+            dados = linhas[cab_idx + 2:]
+        else:
+            dados = linhas[cab_idx + 1:]
+    else:
+        dados = []
+    ultimo = {}
+    cenarios = []
+    for l in dados:
+        if not any(l):
+            continue
+        l = list(l) + [""] * (len(cab) - len(l))
+        alvo = l[idx_alvo] if idx_alvo < len(l) else ""
+        if not alvo:
+            alvo = next((c for c in reversed(l) if c), "")
+        if not re.search(r"\d{3,}", alvo):
+            continue
+        preenchida = []
+        for i, c in enumerate(l):
+            if c:
+                ultimo[i] = c
+                preenchida.append(c)
+            elif i in ultimo and i < idx_alvo and any(l[j] for j in range(i + 1, len(l))):
+                preenchida.append(ultimo[i])
+        valores = preenchida
+        if len(valores) != len(rotulos):
+            rotulos_l = [f"Coluna {n + 1}" for n in range(len(valores))]
+        else:
+            rotulos_l = rotulos
+        campos = [(r, v) for r, v in zip(rotulos_l, valores) if v and v != alvo]
+        numero = valores[0] if valores and re.fullmatch(r"\d{1,3}", valores[0]) else str(len(cenarios) + 1)
+        cenarios.append({"cenario": numero, "alvo": alvo, "rotulo_alvo": rotulo_alvo, "campos": campos})
+    return cenarios if len(cenarios) >= 2 else []
+
+
+def _cenarios_de_tabelas(tabelas):
+    for tb in tabelas:
+        cs = _cenarios_de_tabela(tb)
+        if cs:
+            return cs
+    return []
+
+
+def _tabelas_pdf(pdf_bytes):
+    try:
+        import pdfplumber
+
+        saida = []
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                for tb in page.extract_tables():
+                    saida.append(tb)
+        return saida
+    except Exception:
+        return []
+
+
 def _minerar_texto(texto):
     nome_proj = re.search(r"Nome do Projeto:\s*(.*)", texto)
     jira_ivr = re.search(r"C[oó]digo do Projeto \(JIRA\):\s*(.*)", texto)
@@ -174,6 +261,11 @@ def _minerar_texto(texto):
         campos = _campos_do_formulario(texto or "")
     except Exception:
         secoes, campos = {}, {}
+    indicadores = []
+    for m_ind in re.finditer(r"indicadores?(?:\s+de\s+atendimento)?\s+((?:\d{1,3}\s*(?:,|/|e|ou)?\s*)+)", texto or "", re.IGNORECASE):
+        for n in re.findall(r"\d{1,3}", m_ind.group(1)):
+            if n not in indicadores:
+                indicadores.append(n)
 
     return {
         "nome": nome_proj.group(1).strip() if nome_proj else None,
@@ -182,6 +274,7 @@ def _minerar_texto(texto):
         "vdns": vdns_minados,
         "secoes": secoes,
         "campos": campos,
+        "indicadores": indicadores,
     }
 
 
@@ -192,7 +285,9 @@ def _minerar_pdf(pdf_bytes):
         texto = extract_text(io.BytesIO(pdf_bytes))
     except Exception:
         texto = ""
-    return _minerar_texto(texto)
+    dados = _minerar_texto(texto)
+    dados["cenarios_transferencia"] = _cenarios_de_tabelas(_tabelas_pdf(pdf_bytes))
+    return dados
 
 
 def _minerar_xlsx(xlsx_bytes):
@@ -202,14 +297,19 @@ def _minerar_xlsx(xlsx_bytes):
         wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
     except Exception:
         return _minerar_texto("")
-    partes = []
+    partes, tabelas = [], []
     for aba in wb.sheetnames:
         ws = wb[aba]
+        tabela = []
         for row in ws.iter_rows(values_only=True):
+            tabela.append(list(row))
             for v in row:
                 if v not in (None, ""):
                     partes.append(str(v))
-    return _minerar_texto("\n".join(partes))
+        tabelas.append(tabela)
+    dados = _minerar_texto("\n".join(partes))
+    dados["cenarios_transferencia"] = _cenarios_de_tabelas(tabelas)
+    return dados
 
 
 def _minerar_docx(docx_bytes):
@@ -222,11 +322,17 @@ def _minerar_docx(docx_bytes):
     except Exception:
         return _minerar_texto("")
     partes = [p.text for p in doc.paragraphs]
+    tabelas = []
     for tabela in doc.tables:
+        linhas = []
         for row in tabela.rows:
+            linhas.append([cell.text for cell in row.cells])
             for cell in row.cells:
                 partes.append(cell.text)
-    return _minerar_texto("\n".join(partes))
+        tabelas.append(linhas)
+    dados = _minerar_texto("\n".join(partes))
+    dados["cenarios_transferencia"] = _cenarios_de_tabelas(tabelas)
+    return dados
 
 
 def minerar_eep(eep_bytes, filename=""):
@@ -248,6 +354,7 @@ def minerar_eep(eep_bytes, filename=""):
     dados["jira"] = dados["jira"] or "JIRA/IVR não identificado no EEP"
     dados["chaves"] = dados["chaves"] or []
     dados["vdns"] = dados["vdns"] or []
+    dados["cenarios_transferencia"] = dados.get("cenarios_transferencia") or []
     dados["secoes"] = dados.get("secoes") or {}
     dados["campos"] = dados.get("campos") or {}
     return dados
