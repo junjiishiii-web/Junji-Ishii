@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.29" />
-  <script src="versao.js?v=2.29"></script>
-  <script src="automacao.js?v=2.29"></script>
-  <script src="conferencia.js?v=2.29"></script>
-  <script src="execucao.js?v=2.29"></script>
+  <link rel="stylesheet" href="style.css?v=2.30" />
+  <script src="versao.js?v=2.30"></script>
+  <script src="automacao.js?v=2.30"></script>
+  <script src="conferencia.js?v=2.30"></script>
+  <script src="execucao.js?v=2.30"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -647,12 +647,34 @@
         return;
       }
 
-      // Faz o polling do progresso ate o backend sinalizar "concluido"
+      // Faz o polling do progresso ate o backend sinalizar "concluido".
+      // O servidor gratuito pode reiniciar no meio (troca de versao, dormir/acordar):
+      // enquanto ele volta, o /api/progresso responde uma pagina de erro (nao JSON) —
+      // espera; se ele voltou sem a modelagem (memoria zerada), reenvia SPEC/EEP e recomeça.
       let progresso = null;
+      let falhas = 0, reinicios = 0;
       while (true) {
-        const respProg = await fetch(`${API}/api/progresso`, { credentials: "same-origin" });
-        progresso = await respProg.json().catch(() => null);
-        if (!progresso) { throw new Error("Resposta de progresso inválida."); }
+        progresso = null;
+        try {
+          const respProg = await fetch(`${API}/api/progresso`, { credentials: "same-origin" });
+          if (respProg.ok) progresso = await respProg.json().catch(() => null);
+        } catch (e) { progresso = null; }
+        if (!progresso) {
+          if (++falhas > 90) throw new Error("o servidor ficou sem responder por cerca de 3 minutos. Tente gerar de novo em instantes.");
+          document.getElementById('loadingText').textContent = `O servidor está reiniciando… aguardando ele voltar (${falhas * 2}s)`;
+          await _aguardar(2000);
+          continue;
+        }
+        if (!progresso.inicio && !progresso.concluido) {
+          if (++reinicios > 2) throw new Error("o servidor reiniciou e perdeu a modelagem mais de uma vez. Tente de novo em alguns minutos.");
+          document.getElementById('loadingText').textContent = "O servidor reiniciou no meio da modelagem — reenviando os arquivos e recomeçando…";
+          await reenviarEntradasSalvas();
+          await fetch(urlInicio, { method: "POST", credentials: "same-origin" }).catch(() => null);
+          falhas = 0;
+          await _aguardar(1000);
+          continue;
+        }
+        falhas = 0;
 
         atualizarBarraProgresso(progresso.percentual, progresso.elapsed);
         document.getElementById('loadingText').textContent = progresso.etapa || "Processando…";

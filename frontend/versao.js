@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.30',
+    data: '20/10/2026',
+    itens: [
+      'Correção: "Erro ao cruzar as documentações no servidor: Resposta de progresso inválida". Quando o servidor gratuito reinicia no meio da modelagem (troca de versão, dormir/acordar), a tela agora espera ele voltar e, se a modelagem se perdeu, reenvia a SPEC/EEP e recomeça sozinha.',
+      'Tela inicial: o quadro de upload ficou mais largo — o seletor "Transferência Pura (IDs do EEP)" não vaza mais e o nome do EEP aparece inteiro.',
+    ],
+  },
+  {
     numero: '2.29',
     data: '20/10/2026',
     itens: [
