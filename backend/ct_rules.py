@@ -8,6 +8,7 @@ resolver com confianca, o item vira uma entrada em `revisao_necessaria` em vez
 de virar um CT "chutado".
 """
 import difflib
+import functools
 import re
 from collections import deque
 
@@ -289,7 +290,40 @@ def _pontuar_transicao(t):
     return pontos
 
 
-def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa"):
+# Nome de chave em CamelCase ("DNISPushNotificationNaoCabeadaAfDTMF1", "DDDHabilitaSMSCreditoReprovadoNaoCabeado"):
+# diz qual chave esta ligada, nao a situacao do cliente — fica fora dos tracos do cenario.
+_RX_NOME_CHAVE = re.compile(r"\b\w*[a-z][A-Z]\w*[a-z][A-Z]\w*\b")
+_CONFLITOS_CENARIO = (("cred_ok", "cred_nok"), ("movel_sim", "movel_nao"), ("cab_sim", "cab_nao"))
+_RX_TRANSICAO_ERRO = re.compile(r"\bmax\w*\s*(?:erro|err|sil|rej|inv|tent)|\b(?:rej|inv|sil|noinput|nomatch)\b|timeout|sil[eê]ncio|inv[aá]lid", re.IGNORECASE)
+
+
+def _texto_transicao(t):
+    return " ".join(t.get("path") or [t.get("condicao") or ""])
+
+
+@functools.lru_cache(maxsize=20000)
+def _feat_cenario(txt):
+    """Tracos de um cenario do EEP ou de uma condicao da SPEC: credito, cliente movel, cabeamento..."""
+    # a virgula separa condicoes: "ligou de celular, nao passou pelo estado X" nao e "celular nao"
+    n = normalizar_chave(re.sub(r"[,;]", " sep ", _RX_NOME_CHAVE.sub(" ", str(txt or "")))).replace("_", " ")
+    f = set()
+    if re.search(r"reprovad", n): f.add("cred_nok")
+    elif re.search(r"aprovad", n): f.add("cred_ok")
+    if re.search(r"nao (?:e )?(?:cliente )?(?:claro )?(?:movel|celular)|movel nao|celular nao|numero movel nao", n): f.add("movel_nao")
+    elif re.search(r"movel|celular", n): f.add("movel_sim")
+    if re.search(r"nao cabead|cablingtype 0", n): f.add("cab_nao")
+    elif re.search(r"cabead|cablingtype [12]", n): f.add("cab_sim")
+    if "timeout" in n: f.add("timeout")
+    if "brownfield" in n: f.add("brownfield")
+    if re.search(r"alto valor|servicegroupid (?!diferente)", n): f.add("altovalor")
+    return frozenset(f)
+
+
+def _conflitos_cenario(f_a, f_b):
+    return sum(1 for a, b in _CONFLITOS_CENARIO if (a in f_a and b in f_b) or (b in f_a and a in f_b))
+
+
+def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa", cenario=None):
     """BFS com session tracking ate o estado de destino, evitando ciclos/hubs.
 
     Retorna (caminho, perfil_efetivo). Em specs reais grandes, o UNICO
@@ -303,15 +337,22 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
     perfil oposto — perfil_efetivo avisa o chamador qual perfil realmente
     funcionou, pra rotular o CT (ANINÃO/ANISIM) de forma condizente com o
     caminho de fato gerado.
+
+    cenario (tracos de _feat_cenario, ex.: credito reprovado + nao cabeado): primeiro so por ramos que nao
+    contradizem o cenario, preferindo os que o citam; sem caminho assim, cai na busca de sempre.
     """
     lista_abas = spec_model["lista_abas"]
     mapa_rotas = spec_model["mapa_rotas"]
     estados = spec_model["estados"]
+    cenario = frozenset(cenario or ())
 
-    chave_cache = (destino_nome, perfil_entrada, tuple(sorted((restricoes_extra or {}).items())), modo_entrada)
+    chave_cache = (destino_nome, perfil_entrada, tuple(sorted((restricoes_extra or {}).items())), modo_entrada, tuple(sorted(cenario)))
     cache_bfs = spec_model.setdefault("_bfs_cache", {})
     if chave_cache in cache_bfs:
-        cam_c, perfil_c = cache_bfs[chave_cache]
+        cam_c, perfil_c, hops_c = cache_bfs[chave_cache]
+        if cam_c:
+            # o mesmo caminho de estados pode ter saltos diferentes conforme o cenario: os steps usam os desta busca
+            spec_model.setdefault("_hops_cache", {})[(perfil_c, tuple(cam_c))] = hops_c
         return list(cam_c), perfil_c
 
     start_state = _detectar_start_state(spec_model)
@@ -323,7 +364,19 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
     extras_sem_ani = dict(restricoes_extra or {})
     extras_sem_ani.pop("ani", None)
 
-    def _busca(perfil_ani, bloquear_hubs, filtro_entrada=None):
+    # saidas de cada estado ja resolvidas (destino real, restricoes, pontuacao, tracos): calculadas uma vez por SPEC
+    cache_saidas = spec_model.setdefault("_saidas_bfs", {})
+
+    def _saidas(atual):
+        if atual not in cache_saidas:
+            cache_saidas[atual] = [
+                (t, resolver_destino(mapa_rotas, t["destino"]), extrair_restricoes_sessao(t["condicao"]),
+                 _pontuar_transicao(t), _feat_cenario(_texto_transicao(t)))
+                for t in estados.get(atual, {}).get("transicoes", [])
+            ]
+        return cache_saidas[atual]
+
+    def _busca(perfil_ani, bloquear_hubs, filtro_entrada=None, so_compativeis=False):
         restricoes_iniciais = {"ani": perfil_ani}
         restricoes_iniciais.update(extras_sem_ani)
         fila = deque([([start_state], restricoes_iniciais, [])])
@@ -332,25 +385,22 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
             caminho, restricoes, hops = fila.popleft()
             atual = caminho[-1]
             if atual == destino_nome:
-                # guarda as transicoes escolhidas em cada salto: os steps do CT usam EXATAMENTE elas
-                spec_model.setdefault("_hops_cache", {})[(perfil_ani, tuple(caminho))] = hops
-                return caminho
-            transicoes = estados.get(atual, {}).get("transicoes", [])
+                return caminho, hops
             melhores, ordem = {}, []
-            for t in transicoes:
+            for t, real_dest, novas, pontos_t, f_t in _saidas(atual):
                 if atual == start_state and filtro_entrada:
                     # primeira transicao: entrada nativa da URA x hand-off vindo de outra URA
                     if (filtro_entrada == "nativa") == _eh_entrada_cruzada(t, spec_model):
                         continue
-                real_dest = resolver_destino(mapa_rotas, t["destino"])
                 if not real_dest or real_dest in visitados:
                     continue
                 if bloquear_hubs and _is_hub(real_dest) and real_dest != destino_nome:
                     continue
-                novas = extrair_restricoes_sessao(t["condicao"])
                 if verificar_conflito_sessao(restricoes, novas):
                     continue
-                pontos = _pontuar_transicao(t)
+                if so_compativeis and _conflitos_cenario(cenario, f_t):
+                    continue
+                pontos = (-len(cenario & f_t) if cenario else 0, pontos_t)
                 if real_dest not in melhores:
                     ordem.append(real_dest)
                     melhores[real_dest] = (pontos, t, novas)
@@ -362,20 +412,23 @@ def bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada="aninao", restr
                 atualizadas.update(novas)
                 visitados.add(real_dest)
                 fila.append((caminho + [real_dest], atualizadas, hops + [t]))
-        return []
+        return [], []
 
     perfil_alternativo = "anisim" if perfil_entrada == "aninao" else "aninao"
     # Por padrao prefere a entrada NATIVA da URA; so cai num hand-off de outra URA se nao houver outra
     # saida. modo "cruzada" forca o caminho que entra por outra URA (regressao de entrada alternativa).
     filtros = ("nativa", None) if modo_entrada == "nativa" else ("cruzada",)
-    for filtro in filtros:
-        for perfil_ani in (perfil_entrada, perfil_alternativo):
-            for bloquear_hubs in (True, False):
-                caminho = _busca(perfil_ani, bloquear_hubs, filtro)
-                if caminho:
-                    cache_bfs[chave_cache] = (list(caminho), perfil_ani)
-                    return caminho, perfil_ani
-    cache_bfs[chave_cache] = ([], perfil_entrada)
+    for so_compativeis in ((True, False) if cenario else (False,)):
+        for filtro in filtros:
+            for perfil_ani in (perfil_entrada, perfil_alternativo):
+                for bloquear_hubs in (True, False):
+                    caminho, hops = _busca(perfil_ani, bloquear_hubs, filtro, so_compativeis)
+                    if caminho:
+                        # guarda as transicoes escolhidas em cada salto: os steps do CT usam EXATAMENTE elas
+                        spec_model.setdefault("_hops_cache", {})[(perfil_ani, tuple(caminho))] = hops
+                        cache_bfs[chave_cache] = (list(caminho), perfil_ani, hops)
+                        return caminho, perfil_ani
+    cache_bfs[chave_cache] = ([], perfil_entrada, [])
     return [], perfil_entrada
 
 
@@ -1492,28 +1545,26 @@ class GeradorCT:
                 for i, (o, _t, d) in enumerate(entradas_transfer[:30])
             ]
 
-        def _feat(txt):
-            n = normalizar_chave(txt).replace("_", " ")
-            f = set()
-            if re.search(r"reprovad", n): f.add("cred_nok")
-            elif re.search(r"aprovad", n): f.add("cred_ok")
-            if re.search(r"nao (?:e )?(?:cliente )?(?:claro )?(?:movel|celular)|movel nao|celular nao|numero movel nao", n): f.add("movel_nao")
-            elif re.search(r"movel|celular", n): f.add("movel_sim")
-            if re.search(r"nao cabead", n): f.add("cab_nao")
-            elif re.search(r"cabead", n): f.add("cab_sim")
-            if "timeout" in n: f.add("timeout")
-            if "brownfield" in n: f.add("brownfield")
-            if re.search(r"alto valor|servicegroupid", n): f.add("altovalor")
-            return f
+        def _caminho_ate(origem, t, f_cen):
+            restr = extrair_restricoes_sessao(t["condicao"])
+            caminho, perfil_ef = self._bfs(self.spec_model, origem, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr, cenario=f_cen)
+            if not caminho:
+                caminho, perfil_ef = self._bfs(self.spec_model, origem, perfil_entrada="aninao", cenario=f_cen)
+            return restr, caminho, perfil_ef
 
-        conflitos = [("cred_ok", "cred_nok"), ("movel_sim", "movel_nao"), ("cab_sim", "cab_nao")]
+        def _pontos(f_cen, t, caminho, perfil_ef):
+            """O caminho INTEIRO (saltos do BFS + transicao final) contra o cenario: ganha pelos tracos do cenario
+            citados, perde por cada condicao que o contradiz e por condicoes que se contradizem entre si. Transferir
+            por erro (max erro/silencio/rejeicao) so vale se nao houver outro jeito — salvo no cenario de timeout."""
+            hops = (self.spec_model.get("_hops_cache") or {}).get((perfil_ef, tuple(caminho))) or []
+            textos = [_texto_transicao(h) for h in hops] + [_texto_transicao(t)]
+            feats = [_feat_cenario(x) for x in textos]
+            uniao = set().union(*feats)
+            perda = sum(_conflitos_cenario(f_cen, f) for f in feats) + _conflitos_cenario(uniao, uniao)
+            erros = 0 if "timeout" in f_cen else sum(1 for x in textos if _RX_TRANSICAO_ERRO.search(x))
+            return len(f_cen & uniao) - 2 * perda - erros, perda, erros
 
-        def _pontos(f_cen, t):
-            f_t = _feat(" ".join(t.get("path") or [t.get("condicao") or ""]))
-            ganho = len(f_cen & f_t)
-            perda = sum(1 for a, b in conflitos if (a in f_cen and b in f_t) or (b in f_cen and a in f_t))
-            return ganho - 2 * perda
-
+        feats_spec = frozenset().union(*(_feat_cenario(_texto_transicao(t)) for dados in estados.values() for t in dados.get("transicoes", [])))
         rotulo_alvo = (cenarios[0].get("rotulo_alvo") or "Target").strip(": ") or "Target"
         ultimo_grupo, bloco_idx, bloco_nome = None, len(self._blocos), ""
         primeiro_bloco = True
@@ -1531,21 +1582,31 @@ class GeradorCT:
                 ultimo_grupo = grupo
 
             texto_cen = " ".join(v for k, v in campos if not re.fullmatch(r"cen[aá]rio", k.strip(), re.IGNORECASE))
-            f_cen = _feat(texto_cen)
+            f_cen = frozenset(_feat_cenario(texto_cen))
+            # na ordem do melhor caso (todos os tracos do cenario que a SPEC cita, so os conflitos da transicao final):
+            # para assim que nenhuma das restantes consegue passar a melhor ja achada
+            teto = len(f_cen & feats_spec)
+            otimistas = sorted(
+                ((-(teto - 2 * _conflitos_cenario(f_cen, _feat_cenario(_texto_transicao(t)))), _pontuar_transicao(t),
+                  len(t.get("path") or []), k), origem, t, destino)
+                for k, (origem, t, destino) in enumerate(entradas_transfer)
+            )
             melhor = None
-            for origem, t, destino in entradas_transfer:
-                pontos = _pontos(f_cen, t)
-                chave = (-pontos, _pontuar_transicao(t), len(t.get("path") or []))
+            for otimista, origem, t, destino in otimistas:
+                if melhor is not None and (otimista[0], 0, otimista[1], otimista[2]) > melhor[0][:4]:
+                    break
+                _restr, caminho, perfil_ef = _caminho_ate(origem, t, f_cen)
+                if not caminho:
+                    continue
+                pontos, perda, erros = _pontos(f_cen, t, caminho, perfil_ef)
+                chave = (-pontos, erros, otimista[1], otimista[2], len(caminho), otimista[3])
                 if melhor is None or chave < melhor[0]:
-                    melhor = (chave, origem, t, destino, pontos)
-            _chave, origem, t, destino, pontos = melhor
-
-            restr = extrair_restricoes_sessao(t["condicao"])
-            caminho, perfil_ef = self._bfs(self.spec_model, origem, perfil_entrada=restr.get("ani", "aninao"), restricoes_extra=restr)
-            if not caminho:
-                caminho, perfil_ef = self._bfs(self.spec_model, origem, perfil_entrada="aninao")
-            if not caminho:
+                    melhor = (chave, origem, t, destino, pontos + erros, perda)
+            if melhor is None:
                 continue
+            _chave, origem, t, destino, pontos, perda = melhor
+            # de novo a busca escolhida (vem do cache): os steps usam os saltos DESTE caminho
+            restr, caminho, perfil_ef = _caminho_ate(origem, t, f_cen)
             completo = caminho + ([destino] if destino != caminho[-1] else [])
             alvo = cen.get("alvo") or "—"
             numero = cen.get("cenario") or str(i + 1)
@@ -1567,7 +1628,7 @@ class GeradorCT:
             gherkin = (
                 f"Dado {dado_txt}, Quando {quando_txt} na transferencia para ATH, Então é direcionado para taxonomia {alvo}"
             )
-            nota = "" if pontos > 0 else " [condições do cenário não localizadas na SPEC: caminho padrão até a transferência; preparar a massa conforme o EEP]"
+            nota = "" if pontos > 0 and not perda else " [condições do cenário não localizadas na SPEC: caminho padrão até a transferência; preparar a massa conforme o EEP]"
             self._add_ct(
                 bloco_idx, bloco_nome, destino,
                 f"Cenário {numero} — {descr_cond}",
@@ -1614,10 +1675,10 @@ class GeradorCT:
 
     # ---------- L9: fraseologia obrigatoria p/ prompts na cor do projeto ----------
 
-    def _bfs_completo(self, spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa"):
+    def _bfs_completo(self, spec_model, destino_nome, perfil_entrada="aninao", restricoes_extra=None, modo_entrada="nativa", cenario=None):
         """Modo SPEC completa: nenhum estado pode ficar de fora. Sem caminho a partir do _Start_, tenta pelos
         ESTADOS ANTERIORES declarados na aba do estado; em ultimo caso o CT entra direto no estado, com aviso."""
-        caminho, perfil = bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada, restricoes_extra, modo_entrada)
+        caminho, perfil = bfs_caminho_entrada(spec_model, destino_nome, perfil_entrada, restricoes_extra, modo_entrada, cenario)
         if caminho or modo_entrada != "nativa":
             return caminho, perfil
         estados = spec_model["estados"]

@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.35',
+    data: '20/10/2026',
+    itens: [
+      'Projetos de transferência: cada CT agora segue um caminho da SPEC que respeita o cenário do EEP — crédito aprovado/reprovado, cliente/não cliente Claro Móvel e CEP cabeado/não cabeado (cablingtype) — tanto na transição final para a transferência quanto nos ramos do meio do caminho (antes o caminho pegava o ramo "mais fácil", ex.: "Crédito APROVADO" num cenário de crédito reprovado). Some o aviso ⚠️ Divergente do cenário nesses CTs.',
+      'Entre caminhos equivalentes, prefere transferir sem passar por erro (max erro/silêncio/rejeição), salvo nos cenários de timeout. Se a SPEC não tiver o ramo do cenário, o CT continua no caminho padrão com o aviso "condições do cenário não localizadas na SPEC".',
+    ],
+  },
+  {
     numero: '2.34',
     data: '20/10/2026',
     itens: [
