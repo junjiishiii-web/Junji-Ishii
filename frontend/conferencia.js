@@ -171,17 +171,30 @@ function renderizarConferencia() {
       ? _autoValor('ura_rogue', 'grafana_painel')
       : `${grafana}/d/OBHSegzGK/conversation-finder?orgId=1`).replace(/[?&](from|to)=[^&]*/g, '') + '&from=now-3h&to=now';
     raiz.innerHTML = `
-      <p class="bi-nota">Faça a ligação do CT, pegue o <strong>trace</strong> da conversa no Grafana e carregue o JSON aqui. A ferramenta lê os estados, os SPs (transição e prompt) e os prompts tocados e confere com o esperado do CT.</p>
-      <div class="conf-caminho"><strong>Como pegar o trace (na VPN):</strong>
-        <span>1. <a href="${escHtml(finder)}" target="_blank" rel="noopener">Abrir o Conversation Finder (últimas 3 horas) ↗</a> e ache a ligação pelo <strong>From</strong> (ANI) e horário.</span>
-        <span>2. Clique no <strong>ConversationId</strong> para abrir o trace (Explore → Jaeger).</span>
-        <span>3. No trace: <strong>Inspect → Data → Download</strong> (JSON) e carregue o arquivo abaixo.</span></div>
-      <div class="auto-grid conf-entrada">
-        ${seletorCt}
-        <label class="auto-campo"><span>Trace da conversa (.json)</span>
-          <input type="file" class="auto-input" accept=".json" onchange="confCarregarTrace(this)" />
-          ${confEstado.trace ? `<em class="conf-arq-ok">✓ ${escHtml(confEstado.trace.nome)}</em>` : ''}</label>
+      <p class="bi-nota">Faça a ligação do CT e traga o <strong>trace</strong> da conversa do Grafana. A ferramenta lê os estados, os SPs (transição e prompt) e os prompts tocados e confere com o esperado do CT.</p>
+      <div class="auto-grid conf-entrada">${seletorCt}</div>
+      <div class="conf-auto">
+        <div class="conf-caminho conf-passos"><strong>Na VPN:</strong>
+          <span>1. <a href="${escHtml(finder)}" target="grafana_rogue" rel="opener">Abrir o Conversation Finder (últimas 3 horas) ↗</a> e ache a ligação pelo <strong>From</strong> (ANI) e horário.</span>
+          <span>2. Clique no <strong>ConversationId</strong> para abrir o trace.</span>
+          <span>3. Com o trace aberto, clique no favorito <strong>➜ Enviar ao Modeler</strong>.</span>
+          <span>4. Volte aqui e clique em <strong>📋 Colar trace do Grafana</strong> (se a aba do Grafana foi aberta pelo link acima, o trace já chega sozinho).</span></div>
+        <div class="conf-auto-linha conf-auto-linha-rogue">
+          <button class="btn-export-pdf conf-auto-btn" onclick="confColarTrace()">📋 Colar trace do Grafana</button>
+          <span class="conf-favorito">Ainda não tem o favorito? Arraste este botão para a barra de favoritos:
+            <a class="conf-bookmarklet" href="${escHtml(confBookmarklet())}" onclick="alert('Arraste este botão para a barra de favoritos (Ctrl+Shift+B mostra a barra). Depois, clique nele com o trace aberto no Grafana.'); return false;">➜ Enviar ao Modeler</a></span>
+        </div>
+        ${confEstado.statusBusca ? `<div class="conf-auto-status">${confEstado.statusBusca}</div>` : ''}
+        <div class="conf-colar" id="confColarArea" hidden>
+          <textarea class="auto-input" rows="2" placeholder="Clique aqui e cole com Ctrl+V" onpaste="confColarEvento(event)"></textarea></div>
       </div>
+      <details class="conf-manual" ${confEstado.trace && confEstado.trace.manual ? 'open' : ''}>
+        <summary>Carregar o trace manualmente (.json)</summary>
+        <p class="bi-nota">No trace do Grafana: <strong>Inspect → Data → Download</strong> e carregue o arquivo.</p>
+        <label class="auto-campo"><span>Trace da conversa (.json)</span>
+          <input type="file" class="auto-input" accept=".json" onchange="confCarregarTrace(this)" /></label>
+      </details>
+      ${confEstado.trace ? `<p class="conf-arquivos"><em class="conf-arq-ok">✓ ${escHtml(confEstado.trace.nome)}</em></p>` : ''}
       <div id="confResultado">${ch && confEstado.ctId ? _confHtmlResultado(ch) : ''}</div>`;
     return;
   }
@@ -511,25 +524,123 @@ function confLerTraceRogue(json) {
   return ch;
 }
 
+// Usa um trace (texto JSON do download do Grafana, do Jaeger ou o pacote do favorito). true = carregou.
+function _confUsarTrace(texto, nome, manual) {
+  let json;
+  try { json = JSON.parse(texto); } catch (e) { return 'O conteúdo não é um JSON de trace.'; }
+  if (json && json.formato === 'modeler-trace-rogue') {   // pacote do favorito "➜ Enviar ao Modeler"
+    nome = `trace ${json.traceId} (Grafana)`;
+    json = json.trace;
+    texto = JSON.stringify(json, null, 2);
+  }
+  const ch = confLerTraceRogue(json);
+  if (!ch || !ch.sps.length) return 'Não encontrei a jornada da conversa neste trace. Confira se é o trace da ligação (Explore → Jaeger).';
+  const ani = _autoValor('ura_rogue', 'ani');
+  if (ani && ch.ani && !_confAniBate(ch.ani, ani)
+      && !confirm(`O ANI do trace (${ch.ani}) é diferente do ANI configurado (${ani}). Usar este trace mesmo assim?`)) return '';
+  confEstado.trace = { nome, texto, manual: !!manual };
+  confEstado.chamadas = [ch];
+  confEstado.idx = 0;
+  confEstado.statusBusca = `✓ Trace ${escHtml(ch.traceId)} carregado — ${escHtml(ch.inicio)}, ANI ${escHtml(ch.ani)}.`;
+  renderizarConferencia();
+  return true;
+}
+
 async function confCarregarTrace(input) {
   const arq = (input.files || [])[0];
   if (!arq) return;
-  const texto = await arq.text();
-  let ch = null;
-  try { ch = confLerTraceRogue(JSON.parse(texto)); } catch (e) { ch = null; }
-  if (!ch || !ch.sps.length) {
-    alert('Não encontrei a jornada da conversa neste JSON. Exporte o trace pelo Grafana (Inspect → Data → Download) com o trace aberto no Explore.');
-    input.value = '';
+  const r = _confUsarTrace(await arq.text(), arq.name, true);
+  if (r !== true) { if (r) alert(r); input.value = ''; }
+}
+
+// "📋 Colar trace do Grafana": lê a área de transferência (o navegador pode pedir permissão).
+async function confColarTrace() {
+  let texto = '';
+  try { texto = await navigator.clipboard.readText(); } catch (e) { texto = ''; }
+  if (!texto) {
+    // Sem permissão para ler: o QA cola com Ctrl+V na caixinha.
+    _confStatus('Cole o trace com <strong>Ctrl+V</strong> na caixa abaixo (o navegador não deixou ler a área de transferência).');
+    const area = document.querySelector(`#${confModalCt ? 'confModalCorpo' : 'autoConferencia'} #confColarArea`);
+    if (area) { area.hidden = false; area.querySelector('textarea').focus(); }
     return;
   }
-  const ani = _autoValor('ura_rogue', 'ani');
-  if (ani && ch.ani && !_confAniBate(ch.ani, ani)) {
-    if (!confirm(`O ANI do trace (${ch.ani}) é diferente do ANI configurado (${ani}). Usar este trace mesmo assim?`)) { input.value = ''; return; }
-  }
-  confEstado.trace = { nome: arq.name, texto };
-  confEstado.chamadas = [ch];
-  confEstado.idx = 0;
-  renderizarConferencia();
+  const r = _confUsarTrace(texto, 'trace colado');
+  if (r !== true && r) _confStatus('⚠️ ' + escHtml(r) + ' Clique no favorito <strong>➜ Enviar ao Modeler</strong> com o trace aberto e tente de novo.');
+}
+function confColarEvento(ev) {
+  ev.preventDefault();
+  const r = _confUsarTrace((ev.clipboardData || window.clipboardData).getData('text'), 'trace colado');
+  if (r !== true && r) _confStatus('⚠️ ' + escHtml(r));
+}
+
+// O favorito manda o trace por postMessage quando a aba do Grafana foi aberta pelo link do Modeler.
+window.addEventListener('message', ev => {
+  const d = ev.data;
+  if (!d || d.formato !== 'modeler-trace-rogue' || autoConfig.tipo !== 'ura_rogue') return;
+  let origemGrafana = '';
+  try { origemGrafana = new URL(_autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal').origin; } catch (e) {}
+  if (ev.origin !== origemGrafana) return;   // só aceita do Grafana configurado
+  if (_confUsarTrace(JSON.stringify(d), '') === true) _confAvisoRapido(`Trace ${d.traceId} recebido do Grafana.`);
+});
+
+/* ─── Favorito "➜ Enviar ao Modeler" (roda na página do Grafana) ───
+   Lê o id do trace da URL do Explore, busca o trace pela sessão do próprio
+   Grafana (proxy do Jaeger; se não der, /api/ds/query) e entrega ao Modeler:
+   postMessage para a aba que abriu o Grafana + cópia para a área de
+   transferência; sem cópia, baixa o arquivo. Sem comentários de linha (vira URL). */
+function _confFavorito(MODELER) {
+  (async () => {
+    const aviso = (t, ok) => {
+      const d = document.createElement('div');
+      d.textContent = t;
+      d.style.cssText = 'position:fixed;z-index:99999;right:20px;bottom:20px;max-width:440px;padding:12px 16px;border-radius:6px;font:600 13px sans-serif;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.4);background:' + (ok ? '#245C10' : '#9b1c1c');
+      document.body.appendChild(d);
+      setTimeout(() => d.remove(), 8000);
+    };
+    try {
+      const u = decodeURIComponent(location.href);
+      const m = u.match(/"query"\s*:\s*"([0-9a-fA-F]{16,32})"/) || u.match(/\/trace\/([0-9a-fA-F]{16,32})/) || u.match(/traceId=([0-9a-fA-F]{16,32})/i);
+      if (!m) { aviso('Modeler: abra o trace da conversa (clique no ConversationId) antes de usar o favorito.'); return; }
+      const id = m[1];
+      const fontes = Object.values(((window.grafanaBootData || {}).settings || {}).datasources || {});
+      const dm = u.match(/"datasource"\s*:\s*"([^"]+)"/) || u.match(/"datasource"\s*:\s*\{[^}]*"uid"\s*:\s*"([^"]+)"/) || u.match(/\["[^"]*","[^"]*","([^"]+)"/);
+      const ds = (dm && fontes.find(f => f.uid === dm[1] || f.name === dm[1])) || fontes.find(f => f.type === 'jaeger');
+      if (!ds) { aviso('Modeler: não achei a fonte de dados Jaeger neste Grafana.'); return; }
+      let trace = null;
+      try {
+        const r = await fetch('/api/datasources/proxy/uid/' + ds.uid + '/api/traces/' + id, { credentials: 'include' });
+        if (r.ok) { const j = await r.json(); if (j && j.data && j.data.length) trace = j; }
+      } catch (e) {}
+      if (!trace) {
+        const r = await fetch('/api/ds/query', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ queries: [{ refId: 'A', datasource: { uid: ds.uid, type: ds.type }, query: id }], from: 'now-30d', to: 'now' }) });
+        const j = await r.json();
+        trace = (((j || {}).results || {}).A || {}).frames || null;
+      }
+      if (!trace) { aviso('Modeler: não consegui ler o trace ' + id + '.'); return; }
+      const pacote = { formato: 'modeler-trace-rogue', versao: 1, traceId: id, origem: location.href, trace };
+      const texto = JSON.stringify(pacote);
+      let entregue = false;
+      try { if (window.opener) { window.opener.postMessage(pacote, MODELER); entregue = true; } } catch (e) {}
+      let copiado = false;
+      try { await navigator.clipboard.writeText(texto); copiado = true; } catch (e) {}
+      if (!copiado) {
+        try { const t = document.createElement('textarea'); t.value = texto; document.body.appendChild(t); t.select(); copiado = document.execCommand('copy'); t.remove(); } catch (e) {}
+      }
+      if (!copiado && !entregue) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([texto], { type: 'application/json' }));
+        a.download = 'trace_' + id + '.json';
+        a.click();
+        aviso('Modeler: trace ' + id + ' baixado (trace_' + id + '.json). Carregue no Modeler em "Carregar o trace manualmente".', true);
+        return;
+      }
+      aviso('✓ Trace ' + id + (copiado ? ' copiado. Volte ao Modeler e clique em "📋 Colar trace do Grafana".' : ' enviado ao Modeler.'), true);
+    } catch (e) { aviso('Modeler: erro ao ler o trace (' + e.message + ').'); }
+  })();
+}
+function confBookmarklet() {
+  return 'javascript:' + encodeURIComponent(`(${_confFavorito.toString()})(${JSON.stringify(location.origin)})`);
 }
 
 /* ─── Etapa 3 (sem instalar nada): busca automática na pasta da URA Legado ───

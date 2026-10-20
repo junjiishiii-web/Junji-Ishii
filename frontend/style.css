@@ -829,3 +829,9 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 .conf-manual { margin: 0 0 12px; font-size: 12px; }
 .conf-manual summary { cursor: pointer; font-weight: 600; color: var(--clr-navy); margin-bottom: 8px; }
 @media (max-width: 600px) { .conf-auto-linha { grid-template-columns: 1fr; } }
+.conf-passos { margin-bottom: 10px; }
+.conf-auto-linha.conf-auto-linha-rogue { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.conf-favorito { font-size: 12px; color: #555; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conf-bookmarklet { display: inline-block; padding: 6px 12px; border: 2px dashed var(--clr-navy); border-radius: 14px; background: #EEF4FD; color: var(--clr-navy); font-weight: 700; text-decoration: none; cursor: grab; }
+.conf-colar { margin-top: 8px; }
+.conf-colar textarea { font-family: monospace; }

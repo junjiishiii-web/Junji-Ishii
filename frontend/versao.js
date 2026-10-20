@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.25',
+    data: '20/10/2026',
+    itens: [
+      'ROGUE sem download: favorito ➜ Enviar ao Modeler (arraste o botão da conferência para a barra de favoritos). Com o trace aberto no Grafana, um clique lê o trace e copia; no Modeler, 📋 Colar trace do Grafana carrega e confere. Se a aba do Grafana foi aberta pelo link do Modeler, o trace chega sozinho. O download manual (Inspect → Data → Download) continua disponível.',
+    ],
+  },
+  {
     numero: '2.24',
     data: '20/10/2026',
     itens: [
