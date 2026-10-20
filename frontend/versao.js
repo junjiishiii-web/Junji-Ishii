@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.19',
+    data: '20/10/2026',
+    itens: [
+      'Nova aba 🤖 Automação (etapa 1): escolha a tecnologia (URA Legado, URA ROGUE ou ChatBOT WhatsApp), preencha os dados de execução (número/VDN, origem Avaya ou celular, ANI, diretório dos logs da URA ou URL do Grafana, outras informações) e gere o roteiro de automação (.json) com os steps, DTMFs, prompts e SPs esperados dos CTs escolhidos.',
+    ],
+  },
+  {
     numero: '2.18',
     data: '20/10/2026',
     itens: [
