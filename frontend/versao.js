@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.36',
+    data: '20/10/2026',
+    itens: [
+      'Execução de um CT: o botão 📞 Ligar e executar já inicia a execução automática só daquele CT pelo executor (liga pelo Avaya, digita os passos, desliga e confere a evidência). Sem o executor rodando, a tela explica como iniciá-lo; o "copiar número" continua disponível para ligar à mão.',
+    ],
+  },
+  {
     numero: '2.35',
     data: '20/10/2026',
     itens: [
