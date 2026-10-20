@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.19" />
-  <script src="versao.js?v=2.19"></script>
-  <script src="automacao.js?v=2.19"></script>
+  <link rel="stylesheet" href="style.css?v=2.20" />
+  <script src="versao.js?v=2.20"></script>
+  <script src="automacao.js?v=2.20"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -376,7 +376,8 @@
           <p>A automação está sendo construída <strong>por etapas</strong>. Nesta primeira etapa a aba <em>🤖 Automação</em> prepara tudo o que o executor vai precisar:</p>
           <ol>
             <li><strong>Tecnologia a testar</strong>: <em>URA Legado</em> (evidência no .txt do diretório da URA), <em>URA ROGUE</em> (evidência no Grafana) ou <em>ChatBOT WhatsApp</em>.</li>
-            <li><strong>Dados de execução</strong>: número/VDN a discar, origem (Avaya ou celular), ANI, servidor e diretório dos logs ou URL do Grafana, e um campo livre para as outras informações importantes. Os campos com <strong>*</strong> são obrigatórios.</li>
+            <li><strong>URA / esteira</strong>: em URA Legado, escolha a URA que recebe as chamadas (nome, IP e Node); em URA ROGUE, a esteira do CRN (Principal ou 1-A a 9-I, com o código HML). O número a discar é preenchido sozinho.</li>
+            <li><strong>Dados de execução</strong>: número a discar, origem (Avaya ou celular), ANI, servidor e diretório dos logs ou URL do Grafana, e um campo livre para as outras informações importantes. Os campos com <strong>*</strong> são obrigatórios.</li>
             <li><strong>CTs do roteiro</strong>: todos vêm marcados; use os filtros (novos, regressivos, pendentes) para escolher.</li>
             <li><strong>⬇️ Gerar roteiro de automação</strong>: baixa um .json com a configuração e, para cada CT, os steps, o DTMF sugerido, os prompts e os SPs esperados.</li>
           </ol>

@@ -31,12 +31,44 @@ const AUTO_TIPOS = {
   },
 };
 
+// Para onde as chamadas vão. URA Legado: cada URA tem o seu número. ROGUE (CRN):
+// um único número e um código por esteira de homologação.
+const AUTO_DESTINOS = {
+  ura_legado: {
+    titulo: 'URA que vai receber as chamadas',
+    itens: [
+      { id: 'BHZNETUR95', nome: 'BHZNETUR95', ip: '10.0.132.19', node: '3095', telefone: '(31) 2108-6290' },
+      { id: 'BHZNETUR96', nome: 'BHZNETUR96', ip: '10.227.1.181', node: '3096', telefone: '(31) 2108-6490' },
+      { id: 'BHZETAECUR98', nome: 'BHZETAECUR98', ip: '172.23.30.145', node: '3198', telefone: '(031) 2108-6950' },
+      { id: 'BHZNETAECUR99', nome: 'BHZNETAECUR99', ip: '172.23.30.146', node: '3199', telefone: '(031) 2108-9290' },
+      { id: 'CPSNETUR99', nome: 'CPSNETUR99', ip: '172.19.1.29', node: '1899', telefone: '(019) 2137-5400' },
+    ],
+  },
+  ura_rogue: {
+    titulo: 'Esteira do CRN (HML)',
+    instrucao: 'Ligue para (021) 3616-1194 e, quando atender, digite o código da esteira (ex.: Principal = 2200339).',
+    itens: [
+      { id: 'principal', nome: 'CRN - Principal', codigo: '2200339' },
+      ...'ABCDEFGHI'.split('').map((letra, i) => (
+        { id: `esteira_${letra}`, nome: `CRN - Esteira ${i + 1} - ${letra}`, codigo: `22${i + 1}0339` }
+      )),
+    ].map(e => ({ ...e, telefone: '(021) 3616-1194' })),
+  },
+};
+
+function _autoDestinoEscolhido(tipo) {
+  const lista = AUTO_DESTINOS[tipo];
+  if (!lista) return null;
+  const id = _autoValor(tipo, 'destino');
+  return lista.itens.find(d => d.id === id) || null;
+}
+
 // Campos por grupo. "tipos" = em quais tecnologias o campo aparece; "obrigatorio" = conta para o "pronto para gerar".
 const AUTO_CAMPOS = [
   // Chamada / conversa
   { id: 'ambiente', grupo: 'geral', rotulo: 'Ambiente', tipo: 'select', opcoes: ['Homologação', 'Desenvolvimento', 'Pré-produção', 'Produção (piloto)'], tipos: '*', obrigatorio: true },
   { id: 'origem', grupo: 'geral', rotulo: 'Origem da ligação', tipo: 'select', opcoes: ['Avaya (ramal)', 'Celular'], tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
-  { id: 'numero_destino', grupo: 'geral', rotulo: 'Número / VDN a discar', dica: 'ex.: 0800 ou VDN de homologação', tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
+  { id: 'numero_destino', grupo: 'geral', rotulo: 'Número a discar', dica: 'preenchido ao escolher a URA / esteira', tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
   { id: 'ani', grupo: 'geral', rotulo: 'Número de origem (ANI / ramal)', dica: 'número que vai aparecer na URA', tipos: ['ura_legado', 'ura_rogue'], obrigatorio: true },
   { id: 'bot_numero', grupo: 'geral', rotulo: 'Número do bot no WhatsApp', dica: 'ex.: +55 11 9xxxx-xxxx', tipos: ['chatbot'], obrigatorio: true },
   { id: 'bot_origem', grupo: 'geral', rotulo: 'Número de teste que conversa', tipos: ['chatbot'], obrigatorio: true },
@@ -46,7 +78,6 @@ const AUTO_CAMPOS = [
   { id: 'intervalo', grupo: 'geral', rotulo: 'Intervalo entre CTs (segundos)', dica: '30', tipos: '*' },
 
   // Evidência: URA Legado
-  { id: 'ura_host', grupo: 'evidencia', rotulo: 'Servidor da URA (IP ou nome)', tipos: ['ura_legado'], obrigatorio: true },
   { id: 'ura_acesso', grupo: 'evidencia', rotulo: 'Forma de acesso ao diretório', tipo: 'select', opcoes: ['A confirmar', 'SSH / SFTP', 'Pasta de rede Windows (SMB)', 'FTP', 'Outro'], tipos: ['ura_legado'] },
   { id: 'ura_diretorio', grupo: 'evidencia', rotulo: 'Diretório dos logs (.txt)', dica: 'ex.: /var/log/ura/ ou \\\\servidor\\logs', tipos: ['ura_legado'], obrigatorio: true },
   { id: 'ura_padrao_arquivo', grupo: 'evidencia', rotulo: 'Padrão do nome do arquivo', dica: 'ex.: log_AAAAMMDD_*.txt', tipos: ['ura_legado'] },
@@ -173,20 +204,41 @@ function renderizarAutomacao() {
       <span class="auto-tipo-resumo">${escHtml(t.resumo)}</span>
     </label>`).join('');
 
+  const NUMEROS = '①②③④⑤⑥⑦⑧';
+  let secao = 0;
+  const proximoNumero = () => NUMEROS[secao++];
+  const numTecnologia = proximoNumero();
+
   let corpo = '';
   if (!tipo) {
     corpo = `<p class="auto-vazio">Escolha acima a tecnologia que será testada para ver os campos de execução.</p>`;
   } else {
+    const destinos = AUTO_DESTINOS[tipo];
+    if (destinos) {
+      const escolhido = _autoValor(tipo, 'destino');
+      corpo += `<section class="auto-secao">
+        <h4 class="auto-secao-titulo">${proximoNumero()} ${escHtml(destinos.titulo)}<span class="auto-obrig" title="Obrigatório">*</span></h4>
+        ${destinos.instrucao ? `<p class="bi-nota">${escHtml(destinos.instrucao)}</p>` : ''}
+        <div class="auto-destinos">${destinos.itens.map(d => `
+          <button type="button" class="auto-destino ${escolhido === d.id ? 'ativo' : ''}" onclick="autoEscolherDestino('${escHtml(d.id)}')">
+            <span class="auto-destino-nome">${escHtml(d.nome)}</span>
+            ${d.ip
+              ? `<span class="auto-destino-det">IP ${escHtml(d.ip)}</span><span class="auto-destino-det">Node ${escHtml(d.node)}</span>`
+              : `<span class="auto-destino-det">Código ${escHtml(d.codigo)}</span>`}
+          </button>`).join('')}
+        </div>
+      </section>`;
+    }
     const grupos = [
-      ['geral', tipo === 'chatbot' ? '② Conversa' : '② Ligação'],
-      ['evidencia', '③ Onde buscar a evidência'],
-      ['outros', '④ Informações adicionais'],
+      ['geral', tipo === 'chatbot' ? 'Conversa' : 'Ligação'],
+      ['evidencia', 'Onde buscar a evidência'],
+      ['outros', 'Informações adicionais'],
     ];
-    corpo = grupos.map(([g, titulo]) => {
+    corpo += grupos.map(([g, titulo]) => {
       const campos = AUTO_CAMPOS.filter(c => c.grupo === g && _autoCampoAtivo(c, tipo));
       if (!campos.length) return '';
       return `<section class="auto-secao">
-        <h4 class="auto-secao-titulo">${titulo}</h4>
+        <h4 class="auto-secao-titulo">${proximoNumero()} ${titulo}</h4>
         <div class="auto-grid">${campos.map(c => _autoHtmlCampo(c, tipo)).join('')}</div>
       </section>`;
     }).join('');
@@ -195,12 +247,12 @@ function renderizarAutomacao() {
 
   raiz.innerHTML = `
     <section class="auto-secao">
-      <h4 class="auto-secao-titulo">① Tecnologia a testar</h4>
+      <h4 class="auto-secao-titulo">${numTecnologia} Tecnologia a testar</h4>
       <div class="auto-tipos">${cartoes}</div>
     </section>
     ${corpo}
     <section class="auto-secao">
-      <h4 class="auto-secao-titulo">${tipo ? '⑤' : '②'} CTs que entram no roteiro <span class="bi-contador" id="autoContSel"></span></h4>
+      <h4 class="auto-secao-titulo">${proximoNumero()} CTs que entram no roteiro <span class="bi-contador" id="autoContSel"></span></h4>
       <div class="auto-filtros">
         ${[['todos', 'Todos'], ['novos', 'Só novos'], ['regressivos', 'Só regressivos'], ['pendentes', 'Só pendentes na execução']]
           .map(([f, r]) => `<button class="auto-filtro ${autoFiltro === f ? 'ativo' : ''}" onclick="autoFiltrar('${f}')">${r}</button>`).join('')}
@@ -278,6 +330,7 @@ function _autoPendencias() {
   const faltando = AUTO_CAMPOS
     .filter(c => _autoCampoAtivo(c, tipo) && _autoObrigatorio(c, tipo) && !_autoValor(tipo, c.id).trim())
     .map(c => c.rotulo);
+  if (AUTO_DESTINOS[tipo] && !_autoDestinoEscolhido(tipo)) faltando.unshift(AUTO_DESTINOS[tipo].titulo);
   if (!_autoCasosSelecionados().length) faltando.push('Selecione ao menos 1 CT');
   return faltando;
 }
@@ -294,6 +347,17 @@ function _autoAtualizarProntidao() {
 /* ─── ações da tela ─── */
 function autoEscolherTipo(tipo) {
   autoConfig.tipo = tipo;
+  _autoSalvarConfig();
+  renderizarAutomacao();
+}
+// Escolher a URA / esteira já preenche o número a discar (continua editável).
+function autoEscolherDestino(id) {
+  const tipo = autoConfig.tipo;
+  if (!AUTO_DESTINOS[tipo]) return;
+  const valores = (autoConfig.valores[tipo] = autoConfig.valores[tipo] || {});
+  valores.destino = id;
+  const d = _autoDestinoEscolhido(tipo);
+  if (d && d.telefone) valores.numero_destino = d.telefone;
   _autoSalvarConfig();
   renderizarAutomacao();
 }
@@ -336,6 +400,12 @@ function autoBaixarRoteiro() {
 
   const config = {};
   AUTO_CAMPOS.filter(c => _autoCampoAtivo(c, tipo)).forEach(c => { config[c.id] = _autoValor(tipo, c.id).trim(); });
+  const destino = _autoDestinoEscolhido(tipo);
+  // Como o executor abre a chamada: ROGUE disca o número único e, ao atender, digita o código da esteira.
+  const discagem = tipo === 'chatbot' ? null : {
+    numero: config.numero_destino || (destino && destino.telefone) || '',
+    dtmf_ao_atender: (destino && destino.codigo) || null,
+  };
   const roteiro = {
     formato: AUTO_FORMATO,
     versao_formato: AUTO_VERSAO_FORMATO,
@@ -344,6 +414,8 @@ function autoBaixarRoteiro() {
     projeto: cacheModelagem.jira_ivr || '',
     tecnologia: tipo,
     tecnologia_rotulo: AUTO_TIPOS[tipo].rotulo,
+    destino: destino,
+    discagem: discagem,
     config: config,
     pendencias: _autoPendencias(),
     total_cts: casos.length,

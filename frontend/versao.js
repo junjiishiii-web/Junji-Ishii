@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.20',
+    data: '20/10/2026',
+    itens: [
+      'Automação: em URA Legado, escolha a URA que recebe as chamadas (BHZNETUR95, BHZNETUR96, BHZETAECUR98, BHZNETAECUR99 ou CPSNETUR99, com IP e Node); em URA ROGUE, escolha a esteira do CRN (Principal ou Esteira 1-A a 9-I, com o código HML). O número a discar é preenchido sozinho e a URA/esteira vai para o roteiro.',
+    ],
+  },
+  {
     numero: '2.19',
     data: '20/10/2026',
     itens: [
