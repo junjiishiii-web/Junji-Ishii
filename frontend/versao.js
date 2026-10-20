@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.20',
+    data: '20/10/2026',
+    itens: [
+      'Projeto de transferência detectado automaticamente: se o EEP traz a tabela de cenários com IDs/targets e o projeto não aparece no versionamento da SPEC, a modelagem vira de TRANSFERÊNCIA (1 CT por cenário, todos os targets) mesmo com o seletor em "Alteração de SPEC". Antes saíam só alguns CTs, pelo modo por IVR.',
+      'Plano B de leitura: se a estrutura da tabela do EEP não for reconhecida, os IDs/targets são lidos da lista de números após o cabeçalho "Target".',
+    ],
+  },
+  {
     numero: '2.19',
     data: '20/10/2026',
     itens: [

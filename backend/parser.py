@@ -78,6 +78,15 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
     # Codigo efetivo: o informado ou, se vazio, o descoberto pelo nome do projeto.
     ivr_efetivo = spec_model.get("ivr_resolvido") or ivr_code
 
+    # EEP com tabela de cenarios/targets de transferencia e projeto que nao aparece na SPEC (nao houve alteracao de
+    # navegacao): trata como projeto de transferencia, mesmo que o seletor esteja em "Alteracao de SPEC".
+    transferencia_auto = False
+    if tipo_a and not modo_completo and (eep_model.get("cenarios_transferencia") or []):
+        sem_projeto_na_spec = not spec_model.get("ivr_resolvido") or not spec_model["versionamento"].get("estados_alterados")
+        if sem_projeto_na_spec:
+            tipo_a = False
+            transferencia_auto = True
+
     avisar(12, "Detectando a(s) cor(es) da versão vigente...")
     cores_detectadas = [] if (modo_completo or not tipo_a) else color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
     # Cores que marcam as linhas dos estados no versionamento (ex.: amarelo) tambem identificam as
@@ -114,6 +123,15 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
 
     avisar(98, "Finalizando...")
 
+    if transferencia_auto:
+        plano["revisao_necessaria"].append(
+            {
+                "tipo": "info_transferencia_detectada",
+                "detalhe": "O EEP traz uma tabela de cenários com IDs/targets de transferência e o projeto não aparece no "
+                "versionamento da SPEC: modelei como projeto de TRANSFERÊNCIA (1 CT por cenário do EEP, percorrendo a SPEC "
+                "até a transferência ATH).",
+            }
+        )
     if sem_eep and not modo_completo:
         plano["revisao_necessaria"].append(
             {
@@ -131,7 +149,8 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
             }
         )
 
-    jira_ivr = "SPEC-COMPLETA" if modo_completo else (
+    jira_eep = eep_model.get("jira") if "não identificado" not in str(eep_model.get("jira") or "") else None
+    jira_ivr = "SPEC-COMPLETA" if modo_completo else (jira_eep if (not tipo_a and jira_eep) else None) or (
         ivr_efetivo or spec_model["versionamento"].get("ivr") or eep_model.get("jira") or "IVR não identificado"
     )
 

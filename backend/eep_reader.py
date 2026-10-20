@@ -214,6 +214,30 @@ def _cenarios_de_tabelas(tabelas):
     return []
 
 
+def _cenarios_do_texto(texto):
+    """Plano B quando a estrutura da tabela nao pode ser lida: pega a sequencia de IDs/targets que vem logo
+    depois do cabecalho "Target"/"VDN" (cada numero de 6 a 8 digitos e um cenario a validar)."""
+    for m in re.finditer(r"(?im)^\s*(target|vdn|id de transfer\w*)\s*$", texto or ""):
+        trecho = (texto or "")[m.end(): m.end() + 1200]
+        numeros = []
+        for linha in trecho.splitlines():
+            linha = linha.strip()
+            if not linha:
+                continue
+            if re.fullmatch(r"\d{6,8}", linha):
+                numeros.append(linha)
+            elif numeros:
+                break
+        if len(numeros) >= 2:
+            rotulo = m.group(1).title()
+            return [
+                {"cenario": str(i + 1), "alvo": n, "rotulo_alvo": rotulo,
+                 "campos": [("Cenário", str(i + 1)), ("Origem", "lido do texto do EEP (estrutura da tabela não reconhecida)")]}
+                for i, n in enumerate(numeros)
+            ]
+    return []
+
+
 def _tabelas_pdf(pdf_bytes):
     try:
         import pdfplumber
@@ -286,7 +310,10 @@ def _minerar_pdf(pdf_bytes):
     except Exception:
         texto = ""
     dados = _minerar_texto(texto)
-    dados["cenarios_transferencia"] = _cenarios_de_tabelas(_tabelas_pdf(pdf_bytes))
+    cenarios = _cenarios_de_tabelas(_tabelas_pdf(pdf_bytes))
+    if not cenarios:
+        cenarios = _cenarios_do_texto(texto)
+    dados["cenarios_transferencia"] = cenarios
     return dados
 
 
