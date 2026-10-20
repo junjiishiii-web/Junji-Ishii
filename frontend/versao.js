@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.18',
+    data: '20/10/2026',
+    itens: [
+      'Prompts: SPECs em que a tabela de prompts tem as colunas "Fala" e "Texto" (a "Fala" vazia ou só com "...") agora têm o prompt lido da coluna com conteúdo real. Antes esses estados ficavam sem prompt, e os steps mostravam só o SP (ex.: RecusaContato com spt=29 e nenhum nome/conteúdo de prompt). Todo step de estado com prompt passa a mostrar o nome (ID) e o conteúdo.',
+    ],
+  },
+  {
     numero: '2.17',
     data: '19/10/2026',
     itens: [

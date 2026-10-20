@@ -107,12 +107,40 @@ def _achar_coluna(normalizados, aliases):
     return None
 
 
+def _colunas_texto_prompt(normalizados):
+    """TODAS as colunas que podem trazer o texto do prompt (ex.: "Fala" e "Texto" lado a lado: em alguns
+    templates a "Fala" fica vazia ou com "..." e o texto de verdade esta em "Texto")."""
+    achadas = []
+    for idx, val in enumerate(normalizados):
+        if not val:
+            continue
+        for alias in PROMPT_TEXTO_ALIASES:
+            if val == alias or (val.startswith(alias) and _SUFIXO_PONTUACAO_RE.match(val[len(alias):])):
+                achadas.append(idx)
+                break
+    return achadas
+
+
 def _mapear_cabecalho_prompt(normalizados):
     return {
         "id": _achar_coluna(normalizados, PROMPT_ID_ALIASES),
         "texto": _achar_coluna(normalizados, PROMPT_TEXTO_ALIASES),
+        "texto_extra": _colunas_texto_prompt(normalizados),
         "sp": _achar_coluna(normalizados, PROMPT_SP_ALIASES),
     }
+
+
+_PLACEHOLDER_TEXTO = {"", "...", "…", "-", "—", "–", "n/a"}
+
+
+def _texto_do_prompt(row, mapa_prompt):
+    """Texto do prompt: a primeira coluna de texto com conteudo REAL (ignora vazio e "...")."""
+    candidatos = [mapa_prompt["texto"]] + [c for c in mapa_prompt.get("texto_extra", []) if c != mapa_prompt["texto"]]
+    vistos = [_valor(row, c) for c in candidatos if c is not None]
+    for v in vistos:
+        if v.strip() not in _PLACEHOLDER_TEXTO:
+            return v
+    return next((v for v in vistos if v), "")
 
 
 def _mapear_cabecalho_transicao(normalizados):
@@ -236,7 +264,7 @@ def parse_state_sheet(sheet):
 
         if section == "prompts" and mapa_prompt:
             prompt_id = _valor(row, mapa_prompt["id"])
-            texto = _valor(row, mapa_prompt["texto"])
+            texto = _texto_do_prompt(row, mapa_prompt)
             marcacao = _valor(row, mapa_prompt["sp"])
             eh_secao = not texto and prompt_id.upper() == prompt_id and len(prompt_id) > 3
             if eh_secao:
