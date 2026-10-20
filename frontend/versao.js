@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.34',
+    data: '20/10/2026',
+    itens: [
+      'Massa de Testes: a coluna "Condição da massa" diz como o cliente/chaves precisam estar em cada CT — perfil do ANI, restrições (linha, AfterHours, MPL…), a linha do cenário do EEP (grupo, critério ex.: cablingtype = 0, cliente Claro Móvel, crédito, target esperado) e as condições da SPEC no caminho que dependem do cliente (DNIS, chaves ativadas/desativadas, regras de segmento, RTDM…). Também no xlsx (Massa_Testes).',
+      'Quando o caminho da SPEC contradiz o cenário do EEP (ex.: cenário "Crédito Reprovado" passando por "Crédito APROVADO"), a condição aparece marcada como ⚠️ Divergente do cenário.',
+      'Correção no motor: as regras que preferem o ramo "Else"/padrão e reconhecem chave "não"/desligada não funcionavam (caractere inválido na expressão); voltam a valer.',
+    ],
+  },
+  {
     numero: '2.33',
     data: '20/10/2026',
     itens: [

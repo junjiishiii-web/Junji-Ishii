@@ -202,7 +202,10 @@ def _escrever_massa_testes(wb, plano):
         ws.cell(row=i, column=1, value=caso["ct_id"])
         ws.cell(row=i, column=2, value=caso["estado"])
         ws.cell(row=i, column=3, value=caso["perfil"])
-        req_cell = ws.cell(row=i, column=4, value=caso.get("requisitos_massa") or caso["pre_requisito"])
+        condicoes = caso.get("condicoes_massa") or []
+        texto_req = "\n".join(f"{c.get('rotulo')}: {c.get('valor')}" for c in condicoes if isinstance(c, dict)) \
+            or caso.get("requisitos_massa") or caso["pre_requisito"]
+        req_cell = ws.cell(row=i, column=4, value=texto_req)
         req_cell.alignment = Alignment(wrap_text=True, vertical="top")
         ws.cell(row=i, column=5, value="")
 

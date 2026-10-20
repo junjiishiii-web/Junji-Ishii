@@ -266,8 +266,8 @@ def _eh_entrada_cruzada(t, spec_model):
     return any(len(path) > len(pref) and path[: len(pref)] == pref for pref in _prefixos_cruzados(spec_model))
 
 
-_PADRAO_BASE_RE = re.compile(r"else|sen[aã]o|caso contr[aá]rio|c[oó]digo base|default|demais|massivo", re.IGNORECASE)
-_CHAVE_OFF_RE = re.compile(r"desativad|desligad|desabilitad|inativ|n[aã]o", re.IGNORECASE)
+_PADRAO_BASE_RE = re.compile(r"\belse\b|sen[aã]o|caso contr[aá]rio|c[oó]digo base|default|demais|massivo", re.IGNORECASE)
+_CHAVE_OFF_RE = re.compile(r"desativad|desligad|desabilitad|inativ|\bn[aã]o\b", re.IGNORECASE)
 _CHAVE_ON_RE = re.compile(r"ativad|habilitad|ligad", re.IGNORECASE)
 _ESPECIFICO_RE = re.compile(r"gaming|piloto|vip|ouro|rubi|black|premium|segmento|rgc|pj|empresa", re.IGNORECASE)
 
@@ -707,6 +707,68 @@ def _transicao_casa_dicas(t, dicas):
     return any(re.search(rf"dtmf_?{d}(?!\d)", cond) for d in dtmfs)
 
 
+# Condições do caminho que dependem da massa (cliente, chaves, base, crédito...), e não da tecla.
+_RX_COND_MASSA = re.compile(
+    r"chave|dnis|ddd|segment|client|cr[eé]dit|score|cabl|cabead|mailing|rechamad|adimpl|inadimpl|m[oó]vel|celular|fixo|"
+    r"\bcep\b|cpf|cnpj|contrato|plano|produto|\bbase\b|servicegroup|rtdm|afterhours|hor[aá]rio|protocolo|\bmpl\b|"
+    r"cadastr|identific|ani\b|elegiv|pilot|perfil|indicador|recencia|rec[eê]ncia|bloque|suspens|ativ[ao]|desativ",
+    re.IGNORECASE,
+)
+_RX_SO_TECLA = re.compile(r"^\s*(dtmf|digit\w*|tecl\w*|op[cç][aã]o|selecion\w*)?\s*[:=]?\s*[\d*#]{1,3}\s*$", re.IGNORECASE)
+
+
+def _condicoes_da_massa(perfil, restricoes, tags, extras, steps):
+    """Como a massa do CT precisa estar: perfil do ANI, restrições da sessão, as condições do cenário
+    (ex.: tabela do EEP — grupo, critério, cliente móvel, crédito, target) e as condições da SPEC no
+    caminho que dependem do cliente/chaves (não as que são só uma tecla)."""
+    itens = [{"rotulo": "Perfil do ANI",
+              "valor": "ANI Não — ligar de um número que NÃO identifica o cliente" if perfil == "aninao"
+              else "ANI Sim — ligar do número cadastrado para o cliente"}]
+    for chave, rotulo in tags.items():
+        if restricoes and chave in restricoes:
+            itens.append({"rotulo": rotulo, "valor": str(restricoes[chave])})
+    for k, v in extras or []:
+        if str(v or "").strip():
+            itens.append({"rotulo": str(k).strip(), "valor": str(v).strip()})
+    vistos = {i["valor"].lower() for i in itens}
+    cenario = " ".join(str(v) for _k, v in (extras or [])).lower()
+    for st in steps or []:
+        acao = str(st.get("acao") or "")
+        m = re.search(r"\((.*)\)\s*$", acao)
+        if not m:
+            continue
+        for cond in re.split(r"\s+>\s+", m.group(1)):
+            cond = cond.strip()
+            if not cond or _RX_SO_TECLA.match(cond) or not _RX_COND_MASSA.search(cond) or cond.lower() in vistos:
+                continue
+            if re.fullmatch(r"ani\s+(sim|n[aã]o)", cond, re.IGNORECASE):   # já está no "Perfil do ANI"
+                continue
+            vistos.add(cond.lower())
+            rotulo = f"Condição em {st.get('estado') or '—'}"
+            if _diverge_do_cenario(cenario, cond.lower()):
+                rotulo = f"⚠️ Divergente do cenário — {rotulo}"
+            itens.append({"rotulo": rotulo, "valor": cond})
+    return itens
+
+
+def _diverge_do_cenario(cenario, cond):
+    """O caminho da SPEC contradiz a linha do cenário do EEP (ex.: cenário 'Crédito Reprovado' e o caminho
+    passa por 'Crédito APROVADO'): o QA precisa saber antes de montar a massa."""
+    if not cenario:
+        return False
+    def tem(txt, rx):
+        return re.search(rx, txt) is not None
+    pares = (
+        (r"reprovad", r"(?<!re)aprovad"),
+        (r"n[aã]o cliente", r"(?<!n[aã]o )\bcliente claro m[oó]vel"),
+        (r"(?<!n[aã]o )\bcabead", r"n[aã]o cabead"),
+    )
+    for a, b in pares:
+        if (tem(cenario, a) and tem(cond, b) and not tem(cond, a)) or (tem(cenario, b) and tem(cond, a) and not tem(cond, b)):
+            return True
+    return False
+
+
 def _acao_para_step(idx, condicao, perfil):
     if idx == 0:
         return f"Ligar na URA ({'ANI Não' if perfil == 'aninao' else 'ANI Sim'})"
@@ -867,7 +929,7 @@ class GeradorCT:
         tipo, codigo = sp
         self._sp_bi_cobertura.setdefault(codigo, []).append(ct_id)
 
-    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None, sp_legado=False, acao_final=None, resultado_inicial=None):
+    def _add_ct(self, bloco_num, bloco_nome, estado, alteracao, perfil, caminho, sp_final=None, regressivo=False, sp_pendente=False, gherkin_override=None, restricoes=None, sps_todos=None, steps_extra=None, transicao_final=None, sp_legado=False, acao_final=None, resultado_inicial=None, condicoes_massa=None):
         if not caminho:
             self.revisao_necessaria.append(
                 {
@@ -955,6 +1017,7 @@ class GeradorCT:
         # antes so apontava "veja o Pré-Requisito" em vez de mostrar os
         # requisitos de verdade.
         requisitos_massa = " | ".join(pre_req_partes)
+        condicoes = _condicoes_da_massa(perfil, restricoes, tags, condicoes_massa, steps)
         pre_req_partes.append(f"Alteração: {alteracao}" if alteracao else "Garantia de fluxo principal")
         pre_requisito = " | ".join(pre_req_partes)
 
@@ -978,6 +1041,7 @@ class GeradorCT:
             ),
             "pre_requisito": pre_requisito,
             "requisitos_massa": requisitos_massa,
+            "condicoes_massa": condicoes,
         }
         self.casos_teste.append(caso)
         return caso
@@ -1512,6 +1576,9 @@ class GeradorCT:
                 sp_legado=True, restricoes=restr,
                 acao_final="Encerrar a chamada e validar o target",
                 resultado_inicial=f"{'Target' if rotulo_alvo.lower().startswith('target') else rotulo_alvo} {alvo}{nota}",
+                condicoes_massa=[(k, v) for k, v in campos if not re.fullmatch(r"cen[aá]rio", k.strip(), re.IGNORECASE)
+                                 and not re.search(r"target|vdn|\bid\b", k, re.IGNORECASE)]
+                + [(f"{rotulo_alvo} esperado", alvo)],
             )
 
     def gerar_cts_tipo_b(self):
