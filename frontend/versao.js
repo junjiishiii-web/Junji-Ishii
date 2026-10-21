@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.40',
+    data: '21/10/2026',
+    itens: [
+      'Executor 1.3 (baixe de novo): "⏹ Parar a execução" para na hora — interrompe as esperas, desliga a chamada e o CT continua pendente (antes o executor só olhava o pedido entre um passo e outro).',
+      'Log da URA Legado: se a pasta de rede não abrir pelo nome (\BHZNETAECUR98\lmcti), o executor tenta pelo IP da URA, e a mensagem diz o que falhou (pasta compartilhada, UraLog ou pasta do dia).',
+    ],
+  },
+  {
     numero: '2.39',
     data: '21/10/2026',
     itens: [

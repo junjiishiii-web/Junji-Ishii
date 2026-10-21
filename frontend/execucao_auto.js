@@ -6,7 +6,7 @@
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = 1.2;   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = 1.3;   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -59,7 +59,7 @@ function _execPedido(ctId) {
     tecnologia: tipo,
     numero: String(autoNumeroDiscar(tipo)).replace(/\D/g, ''),
     dtmf_ao_atender: destino && destino.codigo ? destino.codigo : '',
-    ura: tipo === 'ura_legado' && destino ? { host: destino.host || destino.nome, node: destino.node } : null,
+    ura: tipo === 'ura_legado' && destino ? { host: destino.host || destino.nome, ip: destino.ip, node: destino.node } : null,
     ani: _autoValor(tipo, 'ani'),
     passos: roteiro.passos.map(p => ({ n: p.n, estado: p.estado, prompt_id: p.prompt_id, acao: p.acao, digitos: _execDigitosDoPasso(p, massa) || '' })),
     grafana_url: _autoValor('ura_rogue', 'grafana_url') || 'https://grafana-mc1-rogue.hml-sp.claro.internal',
@@ -87,6 +87,8 @@ async function execAutoComecar(modo) {
 
 function execAutoParar() {
   execAuto.parar = true;
+  const b = document.getElementById('btnPararAuto');
+  if (b) { b.disabled = true; b.textContent = '⏳ Parando… (desligando a chamada)'; }
   fetch(`${EXECUTOR_URL}/parar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
 }
 
@@ -104,7 +106,7 @@ function _execAutoTela(ctId, pedido, estado, eventos) {
       teclas: <code>${escHtml(pedido.passos.filter(p => p.digitos).map(p => p.digitos).join(' → ') || '—')}</code></p>
     ${faltaMassa.length ? `<p class="conf-alerta">⚠️ Sem massa para ${faltaMassa.map(p => 'step ' + p.n).join(', ')} — preencha na aba Massa de Testes.</p>` : ''}
     <pre class="exec-g-log">${escHtml((eventos || []).join('\n') || '…')}</pre>
-    <div class="exec-g-acoes"><button class="btn-export-pdf exec-g-sec" onclick="execAutoParar()">⏹ Parar a execução</button></div>`,
+    <div class="exec-g-acoes"><button class="btn-export-pdf exec-g-sec" id="btnPararAuto" onclick="execAutoParar()" ${execAuto.parar ? 'disabled' : ''}>${execAuto.parar ? '⏳ Parando… (desligando a chamada)' : '⏹ Parar a execução'}</button></div>`,
     `🤖 Execução automática — ${ctId}`);
 }
 
@@ -128,8 +130,12 @@ async function _execAutoUmCt(ctId) {
     await _aguardar(1500);
     try { ex = await (await fetch(`${EXECUTOR_URL}/execucao`)).json(); } catch (e) { ex = null; }
     if (!ex) { _execAutoTela(ctId, pedido, 'sem contato com o executor…', []); continue; }
-    _execAutoTela(ctId, pedido, { discando: 'discando', em_chamada: 'em chamada', concluida: 'conferindo', erro: 'erro' }[ex.estado] || ex.estado, ex.eventos);
-    if (ex.estado === 'concluida' || ex.estado === 'erro') break;
+    _execAutoTela(ctId, pedido, { discando: 'discando', em_chamada: 'em chamada', concluida: 'conferindo', erro: 'erro', parado: 'parado' }[ex.estado] || ex.estado, ex.eventos);
+    if (ex.estado === 'concluida' || ex.estado === 'erro' || ex.estado === 'parado') break;
+  }
+  if (ex.estado === 'parado') {   // o QA parou: o CT continua pendente
+    salvarDadosExecucao(ctId, 'comments', `[Auto ${new Date().toLocaleTimeString('pt-BR')}] execução parada pelo QA.`);
+    return;
   }
   if (ex.estado === 'erro') {
     salvarDadosExecucao(ctId, 'status', 'blocked');

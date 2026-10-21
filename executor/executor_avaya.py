@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.2"
+VERSAO = "1.3"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -360,6 +360,17 @@ class LogUra:
 
 # ─────────────────────── trace do ROGUE (Grafana) ───────────────────────
 
+def _diagnostico_pasta(log):
+    try:
+        if not os.path.isdir(log.base):
+            return "a pasta compartilhada não abre deste computador"
+        if not os.path.isdir(os.path.join(log.base, "UraLog")):
+            return "sem a pasta UraLog"
+        return "sem a pasta do dia"
+    except OSError as e:
+        return f"erro {e.__class__.__name__}"
+
+
 def buscar_trace_rogue(grafana, ds_uid, inicio, ani=""):
     """Tenta achar no Jaeger (pelo proxy do Grafana) o trace que começou logo depois da discagem."""
     if not grafana or not ds_uid:
@@ -398,6 +409,10 @@ def buscar_trace_rogue(grafana, ds_uid, inicio, ani=""):
 
 # ─────────────────────────── execução de um CT ───────────────────────────
 
+class _Parado(Exception):
+    pass
+
+
 class Execucao:
     def __init__(self, pedido):
         self.pedido = pedido
@@ -409,6 +424,11 @@ class Execucao:
         self.inicio = None
         self.fim = None
         self.parar = threading.Event()
+
+    def _dormir(self, segundos):
+        # Espera interrompível: "Parar a execução" no site corta na hora.
+        if self.parar.wait(float(segundos)):
+            raise _Parado()
 
     def ev(self, texto):
         self.eventos.append(f"{_agora()} {texto}")
@@ -439,29 +459,37 @@ class Execucao:
             onex.discar(numero)
             self.ev(f"discando {numero}")
             fim = time.time() + float(p.get("espera_atender", 40))
-            while time.time() < fim and not onex.em_chamada() and not self.parar.is_set():
-                time.sleep(0.5)
+            while time.time() < fim and not onex.em_chamada():
+                self._dormir(0.5)
             if not onex.em_chamada():
                 raise RuntimeError("A chamada não completou (o one-X não mostrou a ligação ativa).")
             self.estado = "em_chamada"
             self.ev("chamada ativa")
 
             if p.get("dtmf_ao_atender"):
-                time.sleep(float(p.get("espera_codigo", 5)))
+                self._dormir(p.get("espera_codigo", 5))
                 onex.teclas(str(p["dtmf_ao_atender"]))
                 self.ev(f"código da esteira {p['dtmf_ao_atender']} digitado")
 
             log = None
             ura = p.get("ura") or {}
             if p.get("tecnologia") == "ura_legado" and ura.get("host"):
-                log = LogUra(ura["host"], ura.get("node", ""), self.inicio, p.get("ani", ""))
-                if log.acessivel():
+                # Pasta de rede da URA: pelo nome e, se não abrir, pelo IP.
+                tentativas = []
+                for h in [ura.get("host"), ura.get("ip")]:
+                    if not h:
+                        continue
+                    cand = LogUra(h, ura.get("node", ""), self.inicio, p.get("ani", ""))
+                    if cand.acessivel():
+                        log = cand
+                        break
+                    tentativas.append(f"{cand.dir_ura} ({_diagnostico_pasta(cand)})")
+                if log:
                     achou = log.esperar(lambda: log.chamada, 25, self.parar)
                     self.ev(f"log da URA: chamada canal {int(log.chamada[1])}, transação {int(log.chamada[2])}" if achou
                             else "log da URA: ainda não achei a chamada; sigo pelo tempo de espera")
                 else:
-                    self.ev(f"sem acesso a {log.dir_ura}; sigo pelo tempo de espera")
-                    log = None
+                    self.ev("sem acesso ao log da URA — " + " | ".join(tentativas) + "; sigo pelo tempo de espera")
 
             espera_passo = float(p.get("espera_passo", 10))
             ultimo_seq = 0
@@ -470,7 +498,7 @@ class Execucao:
                 if not digitos:
                     continue
                 if self.parar.is_set():
-                    break
+                    raise _Parado()
                 if not onex.em_chamada():
                     self.ev("a chamada caiu antes do fim dos passos")
                     break
@@ -493,19 +521,21 @@ class Execucao:
                         if novos:
                             ultimo_seq = novos[-1][0]
                         self.ev(f"{alvo}: prompt esperado não apareceu no log; digito assim mesmo")
-                    time.sleep(float(p.get("espera_apos_prompt", 1.5)))
+                    self._dormir(p.get("espera_apos_prompt", 1.5))
                 else:
-                    time.sleep(espera_passo)
+                    self._dormir(espera_passo)
                 onex.teclas(digitos)
                 self.ev(f"{alvo}: digitou {digitos}")
 
             # Fim da jornada: transferência/desligamento no log, ou um tempo fixo.
             if log and log.chamada:
                 r = log.esperar(lambda: [e for e in log.eventos if e[1] in ("transferencia", "desligamento")], float(p.get("espera_final", 25)), self.parar)
+                if self.parar.is_set():
+                    raise _Parado()
                 self.ev("URA transferiu/encerrou" if r else "fim dos passos (sem transferência no log)")
-                time.sleep(3)
+                self._dormir(3)
             else:
-                time.sleep(float(p.get("espera_final_sem_log", 15)))
+                self._dormir(p.get("espera_final_sem_log", 15))
             if onex.desligar():
                 self.ev("desliguei")
             time.sleep(2)
@@ -521,11 +551,19 @@ class Execucao:
                     "integracao_texto": texto_int,
                 }
             elif p.get("tecnologia") == "ura_rogue":
-                time.sleep(float(p.get("espera_trace", 15)))
+                self._dormir(p.get("espera_trace", 15))
                 r = buscar_trace_rogue(p.get("grafana_url"), p.get("grafana_ds_uid"), self.inicio, p.get("ani", ""))
                 self.resultado = {"tipo": "ura_rogue", **(r or {})}
                 self.ev("trace do Grafana obtido" if r and r.get("trace") else f"trace não obtido: {(r or {}).get('erro', '')}")
             self.estado = "concluida"
+        except _Parado:
+            self.estado = "parado"
+            self.ev("execução parada pelo QA")
+            try:
+                if onex and onex.desligar():
+                    self.ev("desliguei")
+            except Exception:
+                pass
         except Exception as e:
             self.erro = f"{e}"
             self.estado = "erro"
