@@ -6,7 +6,7 @@
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = 1.1;   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = 1.2;   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -69,18 +69,20 @@ function _execPedido(ctId) {
 
 async function execAutoComecar(modo) {
   const casos = _autoCasosSelecionados();
-  execFila = (modo === 'pendentes' ? casos.filter(c => _execStatus(c.ct_id) === 'pendente') : casos).map(c => c.ct_id);
+  const filtro = { pendentes: c => _execStatus(c.ct_id) === 'pendente', bloqueados: c => _execStatus(c.ct_id) === 'blocked' }[modo];
+  execFila = (filtro ? casos.filter(filtro) : casos).map(c => c.ct_id);
   if (!execFila.length) return;
   execPos = 0;
   execInicio = new Date();
   execAtivo = false;           // a execução guiada não reage à conferência
   execAuto = { ativo: true, parar: false };
+  execUltimaFoiAuto = true;
   while (execPos < execFila.length && !execAuto.parar) {
     await _execAutoUmCt(execFila[execPos]);
     execPos++;
   }
   execAuto.ativo = false;
-  _execResumo(execAuto.parar);
+  if (!execAuto.fechado) _execResumo(execAuto.parar);
 }
 
 function execAutoParar() {
@@ -89,6 +91,7 @@ function execAutoParar() {
 }
 
 function _execAutoTela(ctId, pedido, estado, eventos) {
+  if (execAuto.fechado) return;   // o QA fechou a janela: não reabre
   const caso = _execCaso(ctId);
   const faltaMassa = pedido.passos.filter(p => /cpf|cnpj|cep|contrato/i.test(`${p.acao} ${p.estado}`) && !p.digitos);
   _execAbrir(`

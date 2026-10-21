@@ -20,6 +20,7 @@ import datetime
 import glob
 import json
 import os
+import queue
 import re
 import ssl
 import sys
@@ -29,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.1"
+VERSAO = "1.2"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -420,15 +421,12 @@ class Execucao:
                 "resultado": self.resultado if self.estado in ("concluida", "erro") else {}}
 
     def rodar(self):
-        try:
-            import comtypes
-            comtypes.CoInitializeEx()
-        except Exception:
-            pass
+        # Roda SEMPRE na thread única de _trabalhador(): o acesso à UI Automation criado numa thread
+        # não funciona em outra (era por isso que só o 1º CT ligava e os seguintes "não achavam" o one-X).
         p = self.pedido
         onex = None
         try:
-            onex = OneX()
+            onex = _onex_da_thread()
             if onex.em_chamada():
                 raise RuntimeError("Já existe uma chamada ativa no one-X. Encerre-a antes de executar.")
             numero = re.sub(r"[^\d*#]", "", p.get("numero", ""))
@@ -545,6 +543,29 @@ class Execucao:
 
 _ATUAL = {"exec": None}
 _TRAVA = threading.Lock()
+_FILA = queue.Queue()
+_ONEX = {"obj": None}
+
+
+def _onex_da_thread():
+    if _ONEX["obj"] is None:
+        _ONEX["obj"] = OneX()
+    return _ONEX["obj"]
+
+
+def _trabalhador():
+    """Uma única thread faz todo o controle do one-X, CT após CT."""
+    try:
+        import comtypes
+        comtypes.CoInitializeEx()
+    except Exception:
+        pass
+    while True:
+        ex = _FILA.get()
+        try:
+            ex.rodar()
+        except Exception:
+            traceback.print_exc()
 
 
 # ─────────────────────────── servidor local ───────────────────────────
@@ -613,7 +634,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(409, {"erro": f"Já estou executando {ex.ct_id}."})
                 ex = Execucao(dados)
                 _ATUAL["exec"] = ex
-                threading.Thread(target=ex.rodar, daemon=True).start()
+                _FILA.put(ex)
             return self._json(200, {"ok": True, "ct_id": ex.ct_id})
         if self.path.startswith("/parar"):
             ex = _ATUAL["exec"]
@@ -629,6 +650,7 @@ def main():
     print(f"  Ouvindo em http://127.0.0.1:{PORTA}  (mantenha esta janela aberta)")
     print("  One-X aberto:", "SIM" if _onex_aberto() else "NÃO — abra e faça login no Avaya one-X")
     print("=" * 64, flush=True)
+    threading.Thread(target=_trabalhador, daemon=True, name="onex").start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORTA), Handler)
     try:
         srv.serve_forever()

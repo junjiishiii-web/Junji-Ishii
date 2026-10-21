@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.39',
+    data: '21/10/2026',
+    itens: [
+      'Executor 1.2 (baixe de novo): corrige "só o 1º CT liga e os seguintes não acham o one-X" — todos os CTs agora rodam na mesma linha de execução do Windows que controla o one-X.',
+      'Janela da execução: o ✕ Fechar do topo (e o Esc) sempre fecha; na execução automática também para o executor e a janela não reabre. Saíram os botões "Fechar" de baixo. No plano guiado o botão de baixo virou "⏸ Pausar".',
+      'Resumo da execução automática: "Continuar pelos pendentes" continua no automático, e "🔁 Repetir os bloqueados" roda de novo os CTs que deram erro.',
+    ],
+  },
+  {
     numero: '2.38',
     data: '21/10/2026',
     itens: [

@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.38" />
-  <script src="versao.js?v=2.38"></script>
-  <script src="automacao.js?v=2.38"></script>
-  <script src="conferencia.js?v=2.38"></script>
-  <script src="execucao.js?v=2.38"></script>
-  <script src="execucao_auto.js?v=2.38"></script>
+  <link rel="stylesheet" href="style.css?v=2.39" />
+  <script src="versao.js?v=2.39"></script>
+  <script src="automacao.js?v=2.39"></script>
+  <script src="conferencia.js?v=2.39"></script>
+  <script src="execucao.js?v=2.39"></script>
+  <script src="execucao_auto.js?v=2.39"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -457,7 +457,7 @@
   <div class="conf-modal-janela">
     <div class="conf-modal-topo">
       <h3 id="execModalTitulo">▶ Execução do plano de testes</h3>
-      <button class="manual-fechar" onclick="execEncerrar()" title="Pausar / fechar (Esc)">✕ Fechar</button>
+      <button class="manual-fechar" onclick="execFecharJanela()" title="Fechar (Esc)">✕ Fechar</button>
     </div>
     <div class="conf-modal-corpo" id="execModalCorpo"></div>
   </div>

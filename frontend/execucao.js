@@ -11,6 +11,7 @@ let execFila = [];      // ct_ids a executar
 let execPos = 0;
 let execInicio = null;  // Date do início, para o resumo
 let execAtivo = false;
+let execUltimaFoiAuto = false;   // o resumo oferece continuar no mesmo modo (automático ou guiado)
 
 function _execCaso(ctId) {
   return ((cacheModelagem && cacheModelagem.casos_teste) || []).find(c => c.ct_id === ctId) || null;
@@ -66,6 +67,7 @@ function execComecar(modo) {
   execPos = 0;
   execInicio = new Date();
   execAtivo = true;
+  execUltimaFoiAuto = false;
   _execMostrarCt();
 }
 
@@ -139,7 +141,7 @@ function _execMostrarCt() {
       <button class="btn-export-pdf" onclick="execTerminei()">✓ Terminei a ligação — conferir evidência</button>
       ${total > 1 ? `<button class="btn-export-pdf exec-g-sec" onclick="execPular()">Pular este CT ⏭</button>` : ''}
       ${total > 1 && execPos > 0 ? `<button class="btn-export-pdf exec-g-sec" onclick="execVoltar()">⏮ Anterior</button>` : ''}
-      <button class="btn-export-pdf exec-g-sec" onclick="execEncerrar()">${total > 1 ? 'Pausar / encerrar' : 'Fechar'}</button>
+      ${total > 1 ? `<button class="btn-export-pdf exec-g-sec" onclick="execEncerrar()">⏸ Pausar</button>` : ''}
     </div>`, `▶ Execução — ${ctId}`);
 }
 
@@ -160,6 +162,7 @@ async function execLigarAutomatico(ctId) {
     return;
   }
   execAuto = { ativo: true, parar: false };
+  execUltimaFoiAuto = true;
   execFila = [ctId];
   execPos = 0;
   execInicio = new Date();
@@ -167,7 +170,7 @@ async function execLigarAutomatico(ctId) {
   await _execAutoUmCt(ctId);
   execAuto.ativo = false;
   execPos = 1;
-  _execResumo(false);
+  if (!execAuto.fechado) _execResumo(false);
 }
 
 // O Avaya one-X não atende links tel: — o número vai para a área de transferência e o QA cola no one-X.
@@ -233,8 +236,8 @@ function _execResumo(pausado) {
     <p class="bi-nota">${execFila.length} CT(s) no plano · ${min} min. Os resultados e evidências estão na aba <strong>Execução dos Testes</strong>; exporte o PDF + ZIP ao terminar.</p>
     ${pend.length ? `<p class="exec-g-dica">Pendentes: ${pend.map(escHtml).join(', ')}</p>` : ''}
     <div class="exec-g-acoes">
-      ${pend.length ? `<button class="btn-export-pdf" onclick="execComecar('pendentes')">▶ Continuar pelos pendentes (${pend.length})</button>` : ''}
-      <button class="btn-export-pdf exec-g-sec" onclick="execFechar()">Fechar</button>
+      ${pend.length ? `<button class="btn-export-pdf" onclick="${execUltimaFoiAuto ? 'execAutoComecar' : 'execComecar'}('pendentes')">${execUltimaFoiAuto ? '🤖' : '▶'} Continuar pelos pendentes (${pend.length})</button>` : ''}
+      ${execUltimaFoiAuto && cont.blocked ? `<button class="btn-export-pdf exec-g-sec" onclick="execAutoComecar('bloqueados')">🔁 Repetir os bloqueados (${cont.blocked})</button>` : ''}
     </div>`, 'Resumo da execução');
 }
 
@@ -249,6 +252,15 @@ function execFechar() {
   execAtivo = false;
   document.getElementById('execModal').classList.remove('aberto');
 }
+// "✕ Fechar" (topo) e Esc: sempre fecha. Na execução automática, também para (o CT em andamento é
+// desligado pelo executor) e não reabre a janela nem o resumo.
+function execFecharJanela() {
+  if (typeof execAuto !== 'undefined' && execAuto.ativo) {
+    execAuto.fechado = true;
+    execAutoParar();
+  }
+  execFechar();
+}
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('execModal') && document.getElementById('execModal').classList.contains('aberto')) execEncerrar();
+  if (e.key === 'Escape' && document.getElementById('execModal') && document.getElementById('execModal').classList.contains('aberto')) execFecharJanela();
 });
