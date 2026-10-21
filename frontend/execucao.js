@@ -151,9 +151,9 @@ async function execLigarAutomatico(ctId) {
   if (btn) btn.disabled = true;
   if (st) st.textContent = 'Procurando o executor nesta máquina…';
   const ex = await execExecutorStatus();
-  if (!ex || !ex.onex_aberto || ex.ocupado) {
+  if (!ex || !ex.onex_aberto || ex.ocupado || _execExecutorAntigo(ex)) {
     if (btn) btn.disabled = false;
-    if (st) st.innerHTML = !ex
+    if (st) st.innerHTML = _execExecutorAntigo(ex) ? _MSG_EXECUTOR_ANTIGO : !ex
       ? '⚠️ O executor não está rodando nesta máquina. Na aba <strong>🤖 Automação</strong> → “Executor automático”, baixe e abra o <code>iniciar_executor.bat</code> (deixe a janela aberta) e clique de novo.'
       : (!ex.onex_aberto ? '⚠️ Abra e faça login no <strong>Avaya one-X</strong> e clique de novo.'
         : `⚠️ O executor está ocupado com ${escHtml(ex.ct_atual)}. Aguarde terminar.`);

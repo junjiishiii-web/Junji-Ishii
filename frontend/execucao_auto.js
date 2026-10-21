@@ -6,6 +6,9 @@
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 let execAuto = { ativo: false, parar: false };
+const EXECUTOR_VERSAO_MIN = 1.1;   // versão do executor_avaya.py que este site espera
+function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
+const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
 async function execExecutorStatus() {
   try {
@@ -22,8 +25,8 @@ async function _execAtualizarStatusAuto(nPend, nTodos) {
   const el = document.getElementById('execAutoStatus');
   if (!el) return;
   const st = await execExecutorStatus();
-  const ok = st && st.onex_aberto;
-  el.innerHTML = !st
+  const ok = st && st.onex_aberto && !_execExecutorAntigo(st);
+  el.innerHTML = _execExecutorAntigo(st) ? _MSG_EXECUTOR_ANTIGO : !st
     ? '⚠️ Executor não encontrado nesta máquina. Baixe e inicie o executor na aba <strong>🤖 Automação</strong> (seção “Executor automático”), com o Avaya one-X aberto.'
     : (!st.onex_aberto
       ? `⚠️ Executor v${escHtml(st.versao)} rodando, mas o <strong>Avaya one-X</strong> não está aberto. Abra e faça login.`
@@ -180,6 +183,6 @@ async function renderizarExecutorAuto() {
     </ol>`;
   const st = await execExecutorStatus();
   const s = document.getElementById('autoExecutorStatus');
-  if (s) s.innerHTML = !st ? '⚪ Executor não está rodando nesta máquina.'
+  if (s) s.innerHTML = _execExecutorAntigo(st) ? _MSG_EXECUTOR_ANTIGO : !st ? '⚪ Executor não está rodando nesta máquina.'
     : (st.onex_aberto ? `🟢 Executor v${escHtml(st.versao)} rodando · Avaya one-X aberto` : `🟡 Executor v${escHtml(st.versao)} rodando · abra o Avaya one-X`);
 }

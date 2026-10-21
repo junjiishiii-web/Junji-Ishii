@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.38',
+    data: '21/10/2026',
+    itens: [
+      'Executor 1.1 (baixe de novo na aba 🤖 Automação): corrige "O Avaya one-X Communicator não está aberto" com o one-X aberto — o executor perdia a janela durante a chamada quando ela estava atrás de outra ou parcialmente fora do monitor. Agora acha o one-X pelo programa (onexcui.exe), não depende de a janela estar em primeiro plano e tenta de novo se a janela "piscar".',
+      'O site avisa quando o executor rodando na máquina é de uma versão antiga.',
+    ],
+  },
+  {
     numero: '2.37',
     data: '20/10/2026',
     itens: [

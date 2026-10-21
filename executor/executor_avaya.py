@@ -29,7 +29,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.0"
+VERSAO = "1.1"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -86,6 +86,34 @@ def _onex_aberto():
     return bool(achou)
 
 
+def _mostrado(el):
+    """Controle exibido pelo one-X: tem tamanho na tela. Não usa is_visible(), que fica False quando a
+    janela está atrás de outra ou parcialmente fora do monitor (os controles ocultos do WPF têm 0x0)."""
+    try:
+        r = el.rectangle()
+        return r.width() > 0 and r.height() > 0
+    except Exception:
+        return False
+
+
+def _exe_do_processo(pid):
+    try:
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            n = ctypes.c_ulong(1024)
+            if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+                return os.path.basename(buf.value).lower()
+        finally:
+            k32.CloseHandle(h)
+    except Exception:
+        pass
+    return ""
+
+
 class OneX:
     def __init__(self):
         from pywinauto import Desktop  # importado aqui: precisa do COM da thread que usa
@@ -95,15 +123,38 @@ class OneX:
     def _janela(self):
         if self.janela is not None:
             try:
-                if self.janela.is_visible():
-                    return self.janela
+                self.janela.element_info.name   # ainda existe?
+                return self.janela
             except Exception:
-                pass
-        for w in self._Desktop(backend="uia").windows():
-            if "one-x" in (w.window_text() or "").lower():
-                self.janela = w
-                return w
-        raise RuntimeError("O Avaya one-X Communicator não está aberto (ou está minimizado na bandeja).")
+                self.janela = None
+        # Não filtra por "visível": janela parcialmente fora da tela ou atrás de outra conta como visível=False
+        # para o Windows. Procura pelo programa (onexcui.exe) e, de reserva, pelo título.
+        vistas = []
+        for tentativa in range(3):
+            try:
+                janelas = self._Desktop(backend="uia").windows(visible_only=False)
+            except Exception:
+                janelas = []
+            pelo_titulo = None
+            for w in janelas:
+                try:
+                    titulo = w.window_text() or ""
+                    exe = _exe_do_processo(w.element_info.process_id)
+                except Exception:
+                    continue
+                if exe == "onexcui.exe":
+                    vistas.append(titulo)
+                    if titulo and _mostrado(w):
+                        self.janela = w
+                        return w
+                if pelo_titulo is None and "one-x" in titulo.lower():
+                    pelo_titulo = w
+            if pelo_titulo is not None:
+                self.janela = pelo_titulo
+                return pelo_titulo
+            time.sleep(1)
+        detalhe = f" Janelas do onexcui.exe encontradas: {vistas}" if vistas else " Nenhuma janela do onexcui.exe encontrada."
+        raise RuntimeError("Não encontrei a janela do Avaya one-X Communicator (está aberto e logado?)." + detalhe)
 
     def achar(self, ids):
         achados, pilha = {}, [self._janela()]
@@ -118,7 +169,7 @@ class OneX:
                     aid = c.element_info.automation_id or ""
                     if aid in _PULAR:
                         continue
-                    if aid in ids and aid not in achados and c.is_visible():
+                    if aid in ids and aid not in achados and _mostrado(c):
                         achados[aid] = c
                     pilha.append(c)
                 except Exception:
@@ -126,7 +177,15 @@ class OneX:
         return achados
 
     def em_chamada(self):
-        return "ButtonEnd" in self.achar({"ButtonEnd"})
+        # Um soluço da UI Automation no meio da chamada não pode derrubar o CT: tenta de novo.
+        for tentativa in range(3):
+            try:
+                return "ButtonEnd" in self.achar({"ButtonEnd"})
+            except Exception:
+                if tentativa == 2:
+                    raise
+                self.janela = None
+                time.sleep(1)
 
     def tempo_na_tela(self):
         t = self.achar({"TextBlockTime"}).get("TextBlockTime")
