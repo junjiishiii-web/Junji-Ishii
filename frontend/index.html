@@ -4,12 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.40" />
-  <script src="versao.js?v=2.40"></script>
-  <script src="automacao.js?v=2.40"></script>
-  <script src="conferencia.js?v=2.40"></script>
-  <script src="execucao.js?v=2.40"></script>
-  <script src="execucao_auto.js?v=2.40"></script>
+  <link rel="stylesheet" href="style.css?v=2.41" />
+  <script src="versao.js?v=2.41"></script>
+  <script src="automacao.js?v=2.41"></script>
+  <script src="conferencia.js?v=2.41"></script>
+  <script src="execucao.js?v=2.41"></script>
+  <script src="execucao_auto.js?v=2.41"></script>
+  <script src="execucao_chat.js?v=2.41"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -824,16 +825,25 @@
 
   /* ─── massa de teste por CT (usada pela automação para digitar CPF, CEP…) ─── */
   const MASSA_CAMPOS = [
-    { id: 'cpf', rotulo: 'CPF/CNPJ' },
+    { id: 'cpf', rotulo: 'CPF' },
+    { id: 'cnpj', rotulo: 'CNPJ' },
     { id: 'contrato', rotulo: 'Contrato' },
     { id: 'cep', rotulo: 'CEP' },
     { id: 'numero', rotulo: 'Nº casa' },
+    { id: 'nome', rotulo: 'Nome completo', texto: true },
+    { id: 'email', rotulo: 'E-mail', texto: true },
+    { id: 'nascimento', rotulo: 'Nascimento (dd/mm/aaaa)', texto: true },
+    { id: 'celular', rotulo: 'Celular (DDD+nº)' },
   ];
+  // Regra do QA: se o CT tem massa própria (qualquer campo preenchido), vale SÓ a massa dele;
+  // se está vazia, vale a massa padrão inteira. As duas não se misturam.
   function massaDoCt(ctId) {
     const propria = (avaliacoesQA[ctId] || {}).massa || {};
     const padrao = (avaliacoesQA.__massa_padrao || {}).massa || {};
+    const temPropria = MASSA_CAMPOS.some(c => String(propria[c.id] || '').trim());
+    const fonte = temPropria ? propria : padrao;
     const m = {};
-    MASSA_CAMPOS.forEach(c => { m[c.id] = String(propria[c.id] || padrao[c.id] || '').trim(); });
+    MASSA_CAMPOS.forEach(c => { m[c.id] = String(fonte[c.id] || '').trim(); });
     return m;
   }
   // Como a massa precisa estar para o CT cair no caminho/target certo (vem do backend: perfil do ANI,
@@ -896,7 +906,7 @@
     const padrao = (avaliacoesQA.__massa_padrao || {}).massa || {};
     const id = escHtml(ctId);
     return `<div class="massa-grade">${MASSA_CAMPOS.map(c => `
-      <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="numeric" value="${escHtml(m[c.id] || '')}"
+      <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="${c.texto ? 'text' : 'numeric'}" value="${escHtml(m[c.id] || '')}"
         placeholder="${escHtml(padrao[c.id] || '')}" oninput="salvarMassa('${id}', '${c.id}', this.value)" /></label>`).join('')}</div>`;
   }
   function salvarMassa(ctId, campo, valor) {
@@ -915,7 +925,7 @@
     const m = (avaliacoesQA.__massa_padrao || {}).massa || {};
     el.innerHTML = `<strong>Massa padrão</strong> <span>usada nos CTs que não têm massa própria (CPF, contrato, CEP e número que a automação digita quando a URA pede)</span>
       <div class="massa-grade">${MASSA_CAMPOS.map(c => `
-        <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="numeric" value="${escHtml(m[c.id] || '')}"
+        <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="${c.texto ? 'text' : 'numeric'}" value="${escHtml(m[c.id] || '')}"
           oninput="salvarMassa('__massa_padrao', '${c.id}', this.value)" /></label>`).join('')}</div>`;
   }
 

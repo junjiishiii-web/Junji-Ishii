@@ -1,1 +1,2 @@
 pywinauto>=0.6.8
+playwright>=1.45

@@ -879,8 +879,8 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 /* ─── Massa de teste por CT ─── */
 .massa-padrao { background: #fff; border: 1px solid var(--clr-blue-light); border-left: 4px solid var(--clr-navy); border-radius: var(--radius-sm); padding: 10px 14px; margin: 0 0 14px; font-size: 12px; }
 .massa-padrao > span { color: #666; margin-left: 6px; }
-.massa-padrao .massa-grade { margin-top: 8px; max-width: 560px; }
-.massa-grade { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 6px; }
+.massa-padrao .massa-grade { margin-top: 8px; max-width: 980px; }
+.massa-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px 6px; }
 .massa-grade label { display: flex; flex-direction: column; gap: 2px; font-size: 10px; font-weight: 600; color: #555; }
 .massa-grade .massa-input { padding: 4px 6px; font-size: 11px; }
 

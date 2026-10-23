@@ -156,6 +156,8 @@ function _autoCasoParaRoteiro(caso) {
       resultado_esperado: st.resultado !== undefined ? st.resultado : (st.prompt_texto || ''),
       sp: sp,
       sp_prompt: spPrompt,
+      entradas: Array.isArray(st.entradas) ? st.entradas : [],   // ChatBOT: o que mandar/clicar (SPEC "Dígito / Valor")
+      prompt_texto: st.prompt_texto || '',
     };
     const dtmf = _autoDtmf(st.acao);
     if (dtmf) passo.dtmf_sugerido = dtmf;
@@ -276,11 +278,11 @@ function renderizarAutomacao() {
         <button class="btn-export-pdf exec-g-sec" id="btnAutoRoteiro" onclick="autoBaixarRoteiro()">⬇️ Gerar roteiro (.json)</button>
       </div>
     </section>
-    ${tipo === 'ura_legado' || tipo === 'ura_rogue' ? `<section class="auto-secao conf-secao">
-      <h4 class="auto-secao-titulo">${proximoNumero()} Executor automático (Avaya one-X) <span class="auto-etapa">Etapa 4</span></h4>
+    ${tipo ? `<section class="auto-secao conf-secao">
+      <h4 class="auto-secao-titulo">${proximoNumero()} Executor automático (${tipo === 'chatbot' ? 'WhatsApp Web' : 'Avaya one-X'}) <span class="auto-etapa">Etapa 4</span></h4>
       <div id="autoExecutor"></div>
-    </section>
-    <section class="auto-secao conf-secao">
+    </section>` : ''}
+    ${tipo === 'ura_legado' || tipo === 'ura_rogue' ? `<section class="auto-secao conf-secao">
       <h4 class="auto-secao-titulo">${proximoNumero()} Conferir evidência da ligação <span class="auto-etapa">Etapa 2</span></h4>
       <div id="autoConferencia"></div>
     </section>` : ''}`;

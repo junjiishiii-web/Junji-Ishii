@@ -6,7 +6,7 @@
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = 1.3;   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = 1.4;   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -25,8 +25,9 @@ async function _execAtualizarStatusAuto(nPend, nTodos) {
   const el = document.getElementById('execAutoStatus');
   if (!el) return;
   const st = await execExecutorStatus();
-  const ok = st && st.onex_aberto && !_execExecutorAntigo(st);
-  el.innerHTML = _execExecutorAntigo(st) ? _MSG_EXECUTOR_ANTIGO : !st
+  const chat = autoConfig.tipo === 'chatbot';
+  const ok = st && (chat || st.onex_aberto) && !_execExecutorAntigo(st);
+  el.innerHTML = _execExecutorAntigo(st) ? _MSG_EXECUTOR_ANTIGO : (chat && st) ? `✓ Executor v${escHtml(st.versao)} pronto para o ChatBOT (WhatsApp Web).` : !st
     ? '⚠️ Executor não encontrado nesta máquina. Baixe e inicie o executor na aba <strong>🤖 Automação</strong> (seção “Executor automático”), com o Avaya one-X aberto.'
     : (!st.onex_aberto
       ? `⚠️ Executor v${escHtml(st.versao)} rodando, mas o <strong>Avaya one-X</strong> não está aberto. Abra e faça login.`
@@ -45,12 +46,63 @@ function _execDigitosDoPasso(passo, massa) {
   if (/cep/.test(t)) return massa.cep;
   if (/numcasa|numerocasa|numeroendereco|numerodaresidencia/.test(t)) return massa.numero;
   if (/contrato|codigonet|codnet/.test(t)) return massa.contrato;
-  if (/cpf|cnpj|documento/.test(t)) return massa.cpf;
+  if (/cnpj/.test(t)) return massa.cnpj || massa.cpf;
+  if (/cpf|documento/.test(t)) return massa.cpf;
   return '';
+}
+
+// Dado que o bot pede no estado (ColetaCNPJ, ColetaEmail…) -> campo da massa.
+function _execCampoMassaDoEstado(estado) {
+  const t = _norm2(estado);
+  if (/cnpj/.test(t)) return 'cnpj';
+  if (/cpf/.test(t)) return 'cpf';
+  if (/email/.test(t)) return 'email';
+  if (/nasc|datanasc/.test(t)) return 'nascimento';
+  if (/celular|telefone|fone|whats/.test(t)) return 'celular';
+  if (/nome/.test(t)) return 'nome';
+  if (/cep/.test(t)) return 'cep';
+  if (/contrato/.test(t)) return 'contrato';
+  return '';
+}
+const _RX_PARECE_REGEX = /[\\^$*+?{}|]|\[0-9|\[a-z]-/i;
+
+// Conversa do ChatBOT: começa com a mensagem inicial ("SIM"); em cada passo, o botão/texto que a SPEC
+// aceita naquela transição (coluna "Dígito / Valor") ou, se o bot pediu um dado, o valor da massa.
+function _execPassosChat(roteiro, massa, inicial) {
+  const passos = [];
+  let usouInicial = false;
+  roteiro.passos.forEach((p, i) => {
+    if (i === 0) return;                                 // _Start_
+    const anterior = roteiro.passos[i - 1] || {};
+    let opcoes = (p.entradas || []).filter(e => !_RX_PARECE_REGEX.test(e));
+    let texto = '';
+    const campo = _execCampoMassaDoEstado(anterior.estado);
+    if ((!opcoes.length || (p.entradas || []).some(e => _RX_PARECE_REGEX.test(e))) && campo && massa[campo]) {
+      texto = massa[campo]; opcoes = [];
+    } else if (!usouInicial && opcoes.some(o => /^sim\b/i.test(o))) {
+      texto = inicial; usouInicial = true;
+    } else if (opcoes.length) {
+      texto = opcoes[0];
+    }
+    if (/^encerrar/i.test(p.acao || '') || p.estado === '-') return;
+    passos.push({ n: p.n, estado: p.estado, texto, opcoes, esperado: p.prompt_texto && p.prompt_texto !== '—' ? p.prompt_texto : '' });
+  });
+  if (!usouInicial) passos.unshift({ n: 1, estado: '_Start_', texto: inicial, opcoes: [], esperado: '' });
+  return passos;
 }
 
 function _execPedido(ctId) {
   const tipo = autoConfig.tipo;
+  if (tipo === 'chatbot') {
+    const roteiro = _autoCasoParaRoteiro(_execCaso(ctId));
+    const inicial = _autoValor('chatbot', 'bot_msg_inicial') || 'SIM';
+    return {
+      ct_id: ctId, tecnologia: 'chatbot',
+      bot_numero: String(_autoValor('chatbot', 'bot_numero') || '551136310228').replace(/\D/g, ''),
+      mensagem_inicial: inicial,
+      passos: _execPassosChat(roteiro, massaDoCt(ctId), inicial),
+    };
+  }
   const destino = _autoDestinoEscolhido(tipo);
   const roteiro = _autoCasoParaRoteiro(_execCaso(ctId));
   const massa = massaDoCt(ctId);
@@ -102,8 +154,10 @@ function _execAutoTela(ctId, pedido, estado, eventos) {
       <div class="exec-g-barra"><div style="width:${Math.round((execPos / execFila.length) * 100)}%"></div></div>
     </div>
     <h4 class="exec-g-titulo">${escHtml(ctId)} — ${escHtml(caso.estado)} <span class="exec-g-estado">${escHtml(estado)}</span></h4>
-    <p class="exec-g-dica">Discando <code>${escHtml(pedido.numero)}</code>${pedido.dtmf_ao_atender ? ` · esteira <code>${escHtml(pedido.dtmf_ao_atender)}</code>` : ''} ·
-      teclas: <code>${escHtml(pedido.passos.filter(p => p.digitos).map(p => p.digitos).join(' → ') || '—')}</code></p>
+    ${pedido.tecnologia === 'chatbot'
+      ? `<p class="exec-g-dica">💬 Bot <code>${escHtml(pedido.bot_numero)}</code> · mensagens: <code>${escHtml(pedido.passos.filter(p => p.texto).map(p => p.texto).join(' → ') || '—')}</code></p>`
+      : `<p class="exec-g-dica">Discando <code>${escHtml(pedido.numero)}</code>${pedido.dtmf_ao_atender ? ` · esteira <code>${escHtml(pedido.dtmf_ao_atender)}</code>` : ''} ·
+      teclas: <code>${escHtml(pedido.passos.filter(p => p.digitos).map(p => p.digitos).join(' → ') || '—')}</code></p>`}
     ${faltaMassa.length ? `<p class="conf-alerta">⚠️ Sem massa para ${faltaMassa.map(p => 'step ' + p.n).join(', ')} — preencha na aba Massa de Testes.</p>` : ''}
     <pre class="exec-g-log">${escHtml((eventos || []).join('\n') || '…')}</pre>
     <div class="exec-g-acoes"><button class="btn-export-pdf exec-g-sec" id="btnPararAuto" onclick="execAutoParar()" ${execAuto.parar ? 'disabled' : ''}>${execAuto.parar ? '⏳ Parando… (desligando a chamada)' : '⏹ Parar a execução'}</button></div>`,
@@ -145,6 +199,12 @@ async function _execAutoUmCt(ctId) {
   }
   // Conferência automática com a evidência que o executor trouxe.
   const res = ex.resultado || {};
+  if (res.tipo === 'chatbot') {
+    const sug = await _execAplicarChat(ctId, pedido, res, ex.eventos || []);
+    _execAutoTela(ctId, pedido, `resultado: ${_STATUS_ROTULO[sug] || sug}`, ex.eventos);
+    await _aguardar(1500);
+    return;
+  }
   confSilencioso = true;
   try {
     confEstado = { tipo: autoConfig.tipo, ctId, ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
@@ -180,7 +240,9 @@ async function renderizarExecutorAuto() {
   const el = document.getElementById('autoExecutor');
   if (!el) return;
   el.innerHTML = `
-    <p class="bi-nota">Para a ferramenta <strong>ligar sozinha</strong> pelo Avaya one-X e digitar os passos de cada CT, rode o executor nesta máquina (na VPN, com o one-X aberto e logado). Ele não usa o mouse nem o teclado: dá para continuar trabalhando.</p>
+    ${autoConfig.tipo === 'chatbot'
+      ? `<p class="bi-nota">Para a ferramenta <strong>conversar sozinha com o bot</strong> (começa com “SIM”, clica nos botões e manda os dados da massa), rode o executor nesta máquina. Ele abre uma <strong>janela própria do Chrome com o WhatsApp Web</strong>: na 1ª vez, leia o QR code com o celular (WhatsApp › Aparelhos conectados › Conectar aparelho). A conversa e um print viram a evidência de cada CT.</p>`
+      : `<p class="bi-nota">Para a ferramenta <strong>ligar sozinha</strong> pelo Avaya one-X e digitar os passos de cada CT, rode o executor nesta máquina (na VPN, com o one-X aberto e logado). Ele não usa o mouse nem o teclado: dá para continuar trabalhando.</p>`}
     <div class="exec-g-ligar">
       <div><div class="exec-g-rotulo">Status</div><div id="autoExecutorStatus" class="exec-g-dica">verificando…</div></div>
       <a class="btn-export-pdf exec-g-btn-ligar" href="${API}/api/executor/download" download>⬇️ Baixar executor (.zip)</a>
@@ -193,5 +255,7 @@ async function renderizarExecutorAuto() {
   const st = await execExecutorStatus();
   const s = document.getElementById('autoExecutorStatus');
   if (s) s.innerHTML = _execExecutorAntigo(st) ? _MSG_EXECUTOR_ANTIGO : !st ? '⚪ Executor não está rodando nesta máquina.'
+    : autoConfig.tipo === 'chatbot' ? `🟢 Executor v${escHtml(st.versao)} rodando · ChatBOT pelo WhatsApp Web (janela própria do Chrome)`
     : (st.onex_aberto ? `🟢 Executor v${escHtml(st.versao)} rodando · Avaya one-X aberto` : `🟡 Executor v${escHtml(st.versao)} rodando · abra o Avaya one-X`);
 }
+

@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.41',
+    data: '23/10/2026',
+    itens: [
+      'ChatBOT (WhatsApp) — execução automática: escolha ChatBOT na aba 🤖 Automação e use ▶ Executar → 💬 Conversar e executar, ou o plano inteiro. O executor 1.4 abre uma janela própria do Chrome com o WhatsApp Web (na 1ª vez leia o QR code), conversa com o bot de HML 551136310228: começa com "SIM", clica nos botões / manda o texto que a SPEC aceita em cada transição e, quando o bot pede um dado, manda a massa. A conversa (.txt) e um print (.png) viram a evidência; o site confere se cada resposta esperada do bot apareceu e sugere OK / Não OK.',
+      'Modelagem: a coluna "Dígito / Valor" das SPECs Rogue (o que o cliente manda/clica em cada transição) passa a ser lida e acompanha cada passo do CT.',
+      'Massa de Testes: novos campos CNPJ, Nome completo, E-mail, Nascimento e Celular. Regra: se o CT tem massa própria vale só ela; se está vazia vale a massa padrão.',
+    ],
+  },
+  {
     numero: '2.40',
     data: '21/10/2026',
     itens: [

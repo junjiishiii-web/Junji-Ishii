@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.3"
+VERSAO = "1.4"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -47,6 +47,10 @@ NUMEROS_PERMITIDOS = {
     "002136161194216915",                                               # ROGUE (CRN esteiras)
 }
 NUMEROS_PERMITIDOS |= {re.sub(r"\D", "", n) for n in os.environ.get("MODELER_EXECUTOR_NUMEROS", "").split(",") if n.strip()}
+# ChatBOT: o executor só conversa com os bots de homologação conhecidos.
+BOTS_WHATSAPP_PERMITIDOS = {"551136310228"}   # ClaroPME HML
+BOTS_WHATSAPP_PERMITIDOS |= {re.sub(r"\D", "", n) for n in os.environ.get("MODELER_EXECUTOR_BOTS", "").split(",") if n.strip()}
+PERFIL_WHATSAPP = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "ModelerExecutor", "whatsapp-perfil")
 
 _TECLAS = {
     "0": "DialButtonZero", "1": "DialButtonOne", "2": "DialButtonTwo", "3": "DialButtonThree",
@@ -413,6 +417,130 @@ class _Parado(Exception):
     pass
 
 
+# ─────────────────────── ChatBOT pelo WhatsApp Web ───────────────────────
+
+class WhatsAppWeb:
+    """Janela própria do Chrome (perfil separado, Playwright) com o WhatsApp Web. Na 1ª vez o QA lê o
+    QR code com o celular; o perfil fica salvo em %LOCALAPPDATA%\\ModelerExecutor\\whatsapp-perfil."""
+
+    _RX_LINHA = re.compile(r"^\[(\d{1,2}:\d{2})(?:,\s*([\d/]+))?\]\s*([^:]*):\s*$")
+
+    def __init__(self):
+        self._pw = None
+        self._ctx = None
+        self.page = None
+
+    def abrir(self):
+        if self.page is not None:
+            try:
+                self.page.title()
+                return self.page
+            except Exception:
+                self.page = None
+        from playwright.sync_api import sync_playwright
+        if self._pw is None:
+            self._pw = sync_playwright().start()
+        os.makedirs(PERFIL_WHATSAPP, exist_ok=True)
+        try:
+            self._ctx = self._pw.chromium.launch_persistent_context(PERFIL_WHATSAPP, channel="chrome", headless=False,
+                                                                     viewport={"width": 1100, "height": 820})
+        except Exception:
+            # Sem Chrome instalado: usa o Edge (também Chromium).
+            self._ctx = self._pw.chromium.launch_persistent_context(PERFIL_WHATSAPP, channel="msedge", headless=False,
+                                                                     viewport={"width": 1100, "height": 820})
+        self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+        return self.page
+
+    def abrir_conversa(self, numero, ev, parar):
+        pg = self.abrir()
+        pg.goto(f"https://web.whatsapp.com/send?phone={numero}", wait_until="domcontentloaded")
+        avisou_qr = False
+        fim = time.time() + 180
+        while time.time() < fim:
+            if parar.wait(1):
+                raise _Parado()
+            if self._caixa_texto() is not None:
+                return
+            if pg.locator("canvas").count() and not avisou_qr:
+                ev("WhatsApp Web pedindo o QR code: no celular, WhatsApp > Aparelhos conectados > Conectar aparelho, e leia o código na janela do Chrome que abriu")
+                avisou_qr = True
+        raise RuntimeError("O WhatsApp Web não abriu a conversa com o bot (QR code não lido ou número inválido).")
+
+    def _caixa_texto(self):
+        for sel in ('footer div[contenteditable="true"][role="textbox"]', 'footer div[contenteditable="true"]'):
+            loc = self.page.locator(sel)
+            if loc.count():
+                return loc.last
+        return None
+
+    def mensagens(self):
+        """Mensagens da conversa aberta: [{de: 'bot'|'qa', hora, texto, botoes}] (as que estão carregadas)."""
+        return self.page.evaluate("""() => {
+          const saida = [];
+          document.querySelectorAll('div.message-in, div.message-out').forEach(m => {
+            const pre = m.querySelector('[data-pre-plain-text]');
+            const textos = [...m.querySelectorAll('span.selectable-text, span[dir="ltr"]')].map(s => s.innerText).filter(Boolean);
+            const botoes = [...m.querySelectorAll('div[role="button"], button')].map(b => (b.innerText || '').trim()).filter(Boolean);
+            saida.push({ de: m.classList.contains('message-in') ? 'bot' : 'qa',
+                         hora: pre ? pre.getAttribute('data-pre-plain-text') : '',
+                         texto: [...new Set(textos)].join('\\n').trim(), botoes: [...new Set(botoes)] });
+          });
+          return saida;
+        }""")
+
+    def qtd_do_bot(self):
+        return self.page.locator("div.message-in").count()
+
+    def enviar_texto(self, texto):
+        caixa = self._caixa_texto()
+        if caixa is None:
+            raise RuntimeError("Não achei a caixa de mensagem do WhatsApp Web.")
+        caixa.click()
+        caixa.fill(texto)
+        if (caixa.inner_text() or "").strip() != texto.strip():   # algumas versões ignoram o fill
+            caixa.press("Control+A")
+            caixa.press_sequentially(texto, delay=20)
+        caixa.press("Enter")
+
+    def clicar_botao(self, opcoes):
+        """Clica, na última mensagem do bot, num botão cujo texto bate com uma das opções. True se clicou."""
+        alvo = [_norm(o) for o in opcoes if o]
+        ultimas = self.page.locator("div.message-in")
+        n = ultimas.count()
+        for i in range(n - 1, max(-1, n - 4), -1):
+            msg = ultimas.nth(i)
+            botoes = msg.locator('div[role="button"], button')
+            for j in range(botoes.count()):
+                b = botoes.nth(j)
+                rotulo = _norm(b.inner_text() or "")
+                if rotulo and any(rotulo == a or rotulo in a or a in rotulo for a in alvo):
+                    b.click()
+                    return True
+        # Lista ("Ver opções"/"Selecione"): abre a lista, escolhe e envia.
+        for texto_lista in ("Ver opções", "Selecione", "Opções", "Escolha"):
+            loc = self.page.get_by_text(texto_lista, exact=False)
+            if loc.count():
+                loc.last.click()
+                time.sleep(1)
+                for o in opcoes:
+                    item = self.page.get_by_text(o, exact=True)
+                    if item.count():
+                        item.last.click()
+                        enviar = self.page.locator('div[role="button"][aria-label="Enviar"], span[data-icon="send"]')
+                        if enviar.count():
+                            enviar.last.click()
+                        return True
+                self.page.keyboard.press("Escape")
+                break
+        return False
+
+    def print_png(self):
+        try:
+            return self.page.screenshot(full_page=False)
+        except Exception:
+            return b""
+
+
 class Execucao:
     def __init__(self, pedido):
         self.pedido = pedido
@@ -430,6 +558,71 @@ class Execucao:
         if self.parar.wait(float(segundos)):
             raise _Parado()
 
+    def _esperar_bot(self, wa, antes, limite, quieto=4):
+        """Espera o bot responder (novas mensagens) e ficar 'quieto' alguns segundos (ele manda várias)."""
+        fim = time.time() + float(limite)
+        ultimo, desde = wa.qtd_do_bot(), time.time()
+        while time.time() < fim:
+            self._dormir(0.7)
+            n = wa.qtd_do_bot()
+            if n != ultimo:
+                ultimo, desde = n, time.time()
+            elif n > antes and time.time() - desde >= quieto:
+                return n - antes
+        return wa.qtd_do_bot() - antes
+
+    def _rodar_chatbot(self):
+        p = self.pedido
+        try:
+            bot = re.sub(r"\D", "", p.get("bot_numero", ""))
+            if bot not in BOTS_WHATSAPP_PERMITIDOS:
+                raise RuntimeError(f"O número {bot} não é de um bot de homologação cadastrado no executor; não enviei nada.")
+            wa = _whatsapp_da_thread()
+            self.inicio = datetime.datetime.now()
+            self.estado = "discando"
+            self.ev(f"abrindo a conversa com o bot {bot} no WhatsApp Web")
+            wa.abrir_conversa(bot, self.ev, self.parar)
+            self.estado = "em_chamada"
+            inicio_conversa = len(wa.mensagens())
+            espera = float(p.get("espera_resposta", 45))
+            for passo in p.get("passos") or []:
+                if self.parar.is_set():
+                    raise _Parado()
+                texto = str(passo.get("texto") or "").strip()
+                opcoes = [o for o in (passo.get("opcoes") or []) if o] or ([texto] if texto else [])
+                alvo = f"step {passo.get('n')} ({passo.get('estado') or '—'})"
+                if not texto and not opcoes:
+                    # Passo automático do bot (API, switch): só espera ele seguir.
+                    self._esperar_bot(wa, wa.qtd_do_bot(), 8, quieto=3)
+                    continue
+                antes = wa.qtd_do_bot()
+                if opcoes and wa.clicar_botao(opcoes):
+                    self.ev(f"{alvo}: cliquei no botão “{opcoes[0]}”")
+                else:
+                    wa.enviar_texto(texto or opcoes[0])
+                    self.ev(f"{alvo}: enviei “{texto or opcoes[0]}”")
+                novas = self._esperar_bot(wa, antes, espera)
+                self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns)" if novas else f"{alvo}: o bot não respondeu em {int(espera)} s")
+            self._dormir(p.get("espera_final_chat", 6))
+            todas = wa.mensagens()
+            conversa = todas[max(0, inicio_conversa - 1):]
+            png = wa.print_png()
+            import base64
+            self.resultado = {"tipo": "chatbot", "conversa": conversa,
+                              "print_png_b64": base64.b64encode(png).decode("ascii") if png else ""}
+            self.ev(f"conversa registrada ({len(conversa)} mensagens)")
+            self.estado = "concluida"
+        except _Parado:
+            self.estado = "parado"
+            self.ev("execução parada pelo QA")
+        except Exception as e:
+            self.erro = f"{e}"
+            self.estado = "erro"
+            self.ev(f"ERRO: {e}")
+            traceback.print_exc()
+        finally:
+            self.fim = datetime.datetime.now()
+
     def ev(self, texto):
         self.eventos.append(f"{_agora()} {texto}")
         print(f"[{self.ct_id}] {texto}", flush=True)
@@ -444,6 +637,8 @@ class Execucao:
         # Roda SEMPRE na thread única de _trabalhador(): o acesso à UI Automation criado numa thread
         # não funciona em outra (era por isso que só o 1º CT ligava e os seguintes "não achavam" o one-X).
         p = self.pedido
+        if p.get("tecnologia") == "chatbot":
+            return self._rodar_chatbot()
         onex = None
         try:
             onex = _onex_da_thread()
@@ -583,6 +778,15 @@ _ATUAL = {"exec": None}
 _TRAVA = threading.Lock()
 _FILA = queue.Queue()
 _ONEX = {"obj": None}
+
+
+_WHATSAPP = {"obj": None}
+
+
+def _whatsapp_da_thread():
+    if _WHATSAPP["obj"] is None:
+        _WHATSAPP["obj"] = WhatsAppWeb()
+    return _WHATSAPP["obj"]
 
 
 def _onex_da_thread():

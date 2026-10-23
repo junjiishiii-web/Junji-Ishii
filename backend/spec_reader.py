@@ -150,7 +150,25 @@ def _mapear_cabecalho_transicao(normalizados):
         "prox_prompt": _achar_coluna(normalizados, TRANSICAO_PROMPT_ALIASES),
         "obs": _achar_coluna(normalizados, TRANSICAO_OBS_ALIASES),
         "sp": _achar_coluna(normalizados, TRANSICAO_SP_ALIASES),
+        # SPECs de canal digital (ChatBOT no Rogue): o que o cliente manda/clica para seguir essa
+        # transição, ex.: "[Sim, por favor; Sim; Sim, sou eu]".
+        "valor": _achar_coluna(normalizados, ("dígito valor", "digito valor", "dígito / valor", "digito / valor", "dígito/valor", "digito/valor")),
     }
+
+
+def _entradas_do_valor(valor):
+    """'[Sim, por favor; Sim; sim; Sim, sou eu]' -> ['Sim, por favor', 'Sim', 'Sim, sou eu'] (sem repetir)."""
+    texto = str(valor or "").strip()
+    if not texto or texto.lower() in ("nan", "none"):
+        return []
+    texto = texto.strip("[]")
+    vistos, saida = set(), []
+    for parte in re.split(r"\s*;\s*", texto):
+        parte = parte.strip().strip("[]").strip()
+        if parte and parte.lower() not in vistos:
+            vistos.add(parte.lower())
+            saida.append(parte)
+    return saida
 
 
 def _valor(row, idx):
@@ -367,6 +385,7 @@ def parse_state_sheet(sheet):
                             "obs": obs_transicao,
                             "sp": classificar_sp(marcacao),
                             "sp_raw": marcacao or None,
+                            "entradas": _entradas_do_valor(_valor(row, mapa_transicao.get("valor"))),
                         }
                     )
             i += 1

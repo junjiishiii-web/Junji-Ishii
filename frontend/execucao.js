@@ -23,11 +23,8 @@ function _execStatus(ctId) {
 // Antes de começar: tecnologia e URA/esteira escolhidas (a ligação e a evidência dependem delas).
 function _execProntoParaComecar() {
   const tipo = autoConfig.tipo;
-  if (tipo !== 'ura_legado' && tipo !== 'ura_rogue') {
-    return tipo === 'chatbot'
-      ? 'A execução guiada do ChatBOT ainda não está disponível.'
-      : 'Escolha a tecnologia (URA Legado ou URA ROGUE) na aba 🤖 Automação.';
-  }
+  if (tipo === 'chatbot') return '';   // bot: número padrão de HML se não houver outro configurado
+  if (tipo !== 'ura_legado' && tipo !== 'ura_rogue') return 'Escolha a tecnologia (URA Legado, URA ROGUE ou ChatBOT) na aba 🤖 Automação.';
   if (!_autoDestinoEscolhido(tipo)) return `Escolha ${tipo === 'ura_rogue' ? 'a esteira' : 'a URA'} na aba 🤖 Automação.`;
   return '';
 }
@@ -73,6 +70,7 @@ function execComecar(modo) {
 
 function execExecutarCt(ctId) {
   if (!cacheModelagem || !_execCaso(ctId)) return;
+  if (autoConfig.tipo === 'chatbot') return _execMostrarCtChat(ctId);
   const falta = _execProntoParaComecar();
   if (falta) {
     _execAbrir(`<h4 class="exec-g-titulo">▶ Executar ${escHtml(ctId)}</h4><p class="conf-alerta">⚠️ ${falta}</p>
@@ -87,6 +85,29 @@ function execExecutarCt(ctId) {
 }
 
 /* ─── tela de um CT ─── */
+// ChatBOT: a conversa é sempre automática (o executor fala com o bot pelo WhatsApp Web).
+function _execMostrarCtChat(ctId) {
+  const caso = _execCaso(ctId);
+  const pedido = _execPedido(ctId);
+  const linhas = pedido.passos.map(p => `<tr><td>${p.n}</td><td>${escHtml(p.estado || '')}</td>
+      <td>${p.texto || (p.opcoes || []).length ? `<code>${escHtml(p.texto || p.opcoes[0])}</code>` : '<em>(o bot segue sozinho)</em>'}</td>
+      <td class="exec-g-ouvir">${escHtml((p.esperado || '').slice(0, 160))}</td></tr>`).join('');
+  _execAbrir(`
+    <h4 class="exec-g-titulo">${escHtml(ctId)} — ${escHtml(caso.estado)}</h4>
+    <p class="exec-g-gherkin">${escHtml(caso.gherkin)}</p>
+    <div class="exec-g-ligar">
+      <div>
+        <div class="exec-g-rotulo">💬 Conversa com o bot ${escHtml(pedido.bot_numero)} (WhatsApp Web)</div>
+        <small>O executor abre uma janela própria do Chrome com o WhatsApp Web (na 1ª vez, leia o QR code), começa com “${escHtml(pedido.mensagem_inicial)}” e segue os passos.</small>
+        <div class="exec-g-dica" id="execLigarStatus"></div>
+      </div>
+      <button class="btn-export-pdf exec-g-btn-ligar" id="btnLigarAuto" onclick="execLigarAutomatico('${escHtml(ctId)}')">💬 Conversar e executar</button>
+    </div>
+    <div class="history-table-wrap"><table class="data-table exec-g-passos">
+      <thead><tr><th style="width:44px;">Step</th><th style="width:170px;">Estado</th><th>Mensagem / botão</th><th>O bot deve responder</th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>`, `💬 Execução — ${ctId}`);
+}
+
 function _execMostrarCt() {
   const ctId = execFila[execPos];
   const caso = _execCaso(ctId);

@@ -848,6 +848,7 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
         prox_prompt_target = ""
         condicao = ""
         sp_hop = None
+        entradas_hop = []   # ChatBOT: o que o cliente manda/clica para seguir esta transição
         if j == 0:
             condicao = ""
         else:
@@ -866,6 +867,7 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
                 condicao = match_t["condicao"]
                 prox_prompt_target = match_t.get("prox_prompt", "")
                 sp_hop = match_t.get("sp")
+                entradas_hop = list(match_t.get("entradas") or [])
 
         state_data = spec_model["estados"].get(estado_nome, {})
         prompt = _match_prompt(state_data, prox_prompt_target)
@@ -894,6 +896,7 @@ def montar_steps(spec_model, caminho, perfil, transicao_final=None):
                 "sp": sp_hop,
                 "sp_prompt": sp_prompt,
                 "resultado": resultado_hop,
+                "entradas": entradas_hop,
             }
         )
     return steps
