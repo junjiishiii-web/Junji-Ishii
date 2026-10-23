@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.5"
+VERSAO = "1.6"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -503,19 +503,22 @@ class WhatsAppWeb:
         caixa.press("Enter")
 
     def clicar_botao(self, opcoes):
-        """Clica, na última mensagem do bot, num botão cujo texto bate com uma das opções. True se clicou."""
+        """Clica no botão do bot cujo texto bate com uma das opções (ex.: "Quero renovar"). True se clicou.
+        No WhatsApp Web os botões aparecem logo abaixo do balão do bot (fora dele), por isso a busca é pelo
+        texto na conversa aberta, do mais recente para o mais antigo."""
         alvo = [_norm(o) for o in opcoes if o]
-        ultimas = self.page.locator("div.message-in")
-        n = ultimas.count()
-        for i in range(n - 1, max(-1, n - 4), -1):
-            msg = ultimas.nth(i)
-            botoes = msg.locator('div[role="button"], button')
-            for j in range(botoes.count()):
-                b = botoes.nth(j)
+        conversa = self.page.locator("#main")
+        candidatos = conversa.locator('div[role="button"], button, span[dir="auto"]')
+        n = candidatos.count()
+        for i in range(n - 1, max(-1, n - 60), -1):
+            b = candidatos.nth(i)
+            try:
                 rotulo = _norm(b.inner_text() or "")
-                if rotulo and any(rotulo == a or rotulo in a or a in rotulo for a in alvo):
-                    b.click()
-                    return True
+            except Exception:
+                continue
+            if rotulo and len(rotulo) <= 40 and any(rotulo == a for a in alvo):
+                b.click()
+                return True
         # Lista ("Ver opções"/"Selecione"): abre a lista, escolhe e envia.
         for texto_lista in ("Ver opções", "Selecione", "Opções", "Escolha"):
             loc = self.page.get_by_text(texto_lista, exact=False)
@@ -533,6 +536,23 @@ class WhatsAppWeb:
                 self.page.keyboard.press("Escape")
                 break
         return False
+
+    _RX_FIM = re.compile(r"at[eé] mais|tchau|at[eé] logo|at[eé] breve|encerr|foi um prazer|volte sempre|tenha um (?:[oó]timo|bom) dia|"
+                         r"tentar novamente mais tarde|obrigad[oa] pel[oa]", re.IGNORECASE)
+
+    def conversa_encerrada(self, fim_textos=()):
+        """O bot fechou a conversa? A última mensagem (depois da última do QA) é de despedida/encerramento."""
+        msgs = self.mensagens()
+        if not msgs:
+            return True
+        ultima = msgs[-1]
+        if ultima["de"] != "bot":
+            return False
+        texto = ultima.get("texto") or ""
+        if self._RX_FIM.search(texto):
+            return True
+        tn = _norm(texto)
+        return any(f and _norm(f)[:40] and _norm(f)[:40] in tn for f in fim_textos)
 
     def print_png(self):
         try:
@@ -571,6 +591,14 @@ class Execucao:
                 return n - antes
         return wa.qtd_do_bot() - antes
 
+    def _esperar_encerramento(self, wa, fim_textos, limite):
+        fim = time.time() + float(limite)
+        while time.time() < fim:
+            self._dormir(3)
+            if wa.conversa_encerrada(fim_textos):
+                return True
+        return False
+
     def _rodar_chatbot(self):
         p = self.pedido
         try:
@@ -582,28 +610,55 @@ class Execucao:
             self.estado = "discando"
             self.ev(f"abrindo a conversa com o bot {bot} no WhatsApp Web")
             wa.abrir_conversa(bot, self.ev, self.parar)
+            fim_textos = [t for t in (p.get("fim_textos") or []) if t]
+            limite_fim = float(p.get("espera_encerramento", 600))
+
+            # Uma conversa por CT: se a anterior ainda está aberta, espera o bot encerrar antes do "SIM".
+            if not wa.conversa_encerrada(fim_textos):
+                self.ev(f"a conversa anterior ainda está aberta; aguardando o bot encerrar (até {int(limite_fim // 60)} min)")
+                if not self._esperar_encerramento(wa, fim_textos, limite_fim):
+                    raise RuntimeError("O bot não encerrou a conversa anterior; não comecei este CT para não misturar as conversas.")
+                self.ev("conversa anterior encerrada")
             self.estado = "em_chamada"
             inicio_conversa = len(wa.mensagens())
             espera = float(p.get("espera_resposta", 45))
             for passo in p.get("passos") or []:
                 if self.parar.is_set():
                     raise _Parado()
+                tipo = passo.get("tipo") or ("texto" if passo.get("texto") else ("botao" if passo.get("opcoes") else "auto"))
                 texto = str(passo.get("texto") or "").strip()
-                opcoes = [o for o in (passo.get("opcoes") or []) if o] or ([texto] if texto else [])
+                opcoes = [o for o in (passo.get("opcoes") or []) if o]
                 alvo = f"step {passo.get('n')} ({passo.get('estado') or '—'})"
-                if not texto and not opcoes:
+                if tipo == "falta_massa":
+                    raise RuntimeError(f"{alvo}: o bot pede {passo.get('campo') or 'um dado'} e a massa está vazia — preencha na aba Massa de Testes.")
+                if tipo == "auto":
                     # Passo automático do bot (API, switch): só espera ele seguir.
                     self._esperar_bot(wa, wa.qtd_do_bot(), 8, quieto=3)
                     continue
                 antes = wa.qtd_do_bot()
-                if opcoes and wa.clicar_botao(opcoes):
+                if tipo == "silencio":
+                    limite_sil = float(p.get("espera_silencio", 480))
+                    self.ev(f"{alvo}: fico em silêncio e espero o bot reagir (até {int(limite_sil // 60)} min)")
+                    novas = self._esperar_bot(wa, antes, limite_sil)
+                    self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns) ao silêncio" if novas else f"{alvo}: o bot não reagiu ao silêncio")
+                    continue
+                if opcoes and wa.clicar_botao(opcoes + ([texto] if texto else [])):
                     self.ev(f"{alvo}: cliquei no botão “{opcoes[0]}”")
                 else:
-                    wa.enviar_texto(texto or opcoes[0])
-                    self.ev(f"{alvo}: enviei “{texto or opcoes[0]}”")
+                    enviar = texto or (opcoes[0] if opcoes else "")
+                    wa.enviar_texto(enviar)
+                    self.ev(f"{alvo}: enviei “{enviar}”" + (" (botão não encontrado na tela)" if tipo == "botao" else ""))
                 novas = self._esperar_bot(wa, antes, espera)
                 self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns)" if novas else f"{alvo}: o bot não respondeu em {int(espera)} s")
-            self._dormir(p.get("espera_final_chat", 6))
+
+            # Fim do CT: espera o bot encerrar (despedida) para o próximo CT começar numa conversa nova.
+            if wa.conversa_encerrada(fim_textos):
+                self.ev("o bot encerrou a conversa")
+            else:
+                self.ev(f"aguardando o bot encerrar a conversa (até {int(limite_fim // 60)} min)")
+                self.ev("o bot encerrou a conversa" if self._esperar_encerramento(wa, fim_textos, limite_fim)
+                        else "o bot NÃO encerrou a conversa no tempo limite")
+            self._dormir(p.get("espera_final_chat", 3))
             todas = wa.mensagens()
             conversa = todas[max(0, inicio_conversa - 1):]
             png = wa.print_png()

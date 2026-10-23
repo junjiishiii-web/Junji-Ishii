@@ -3,6 +3,16 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.44',
+    data: '23/10/2026',
+    itens: [
+      'ChatBOT — executor 1.6 (baixe de novo): uma conversa por CT. Antes de mandar o "SIM" o executor espera o bot ENCERRAR a conversa anterior (mensagem de despedida) e, no fim de cada CT, espera o encerramento antes do próximo — o "SIM" não cai mais no meio da conversa anterior.',
+      'Cada passo segue o CT modelado: clica no botão do caminho (ex.: "Quero renovar" / "Não tenho interesse"), fica em silêncio quando o passo é de silêncio, manda a massa quando o bot pede um dado e, se a massa estiver vazia, para o CT com o aviso em vez de mandar outra coisa.',
+      '🔎 Conferir evidência no ChatBOT mostra o print e a conversa da última execução do CT.',
+      'Executar de novo o mesmo CT substitui a evidência automática anterior (ChatBOT_/Log_URA_/Rogue_) e a nota [Auto] do comentário; anexos e comentários feitos à mão ficam.',
+    ],
+  },
+  {
     numero: '2.43',
     data: '23/10/2026',
     itens: [

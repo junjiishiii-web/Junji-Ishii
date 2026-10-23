@@ -141,9 +141,15 @@ function renderizarConferencia() {
   const tipo = autoConfig.tipo;
   // Trocou de tecnologia: o que foi carregado para a outra não vale aqui.
   if (confEstado.tipo !== tipo) confEstado = { tipo, ctId: confEstado.ctId, ura: null, integracao: null, trace: null, chamadas: [], idx: -1 };
+  if (tipo === 'chatbot') {
+    // ChatBOT: por enquanto a conferência mostra a evidência da última execução (print + conversa).
+    if (confModalCt) chatMostrarEvidencia(raiz, confModalCt);
+    else raiz.innerHTML = '';
+    return;
+  }
   if (tipo !== 'ura_legado' && tipo !== 'ura_rogue') {
     raiz.innerHTML = confModalCt
-      ? `<p class="conf-alerta">⚠️ ${tipo === 'chatbot' ? 'A conferência do ChatBOT ainda não está disponível.' : 'Escolha primeiro a tecnologia (URA Legado ou URA ROGUE) e a URA / esteira na aba <strong>🤖 Automação</strong>.'}</p>
+      ? `<p class="conf-alerta">⚠️ Escolha primeiro a tecnologia (URA Legado, URA ROGUE ou ChatBOT) e a URA / esteira na aba <strong>🤖 Automação</strong>.</p>
          <button class="btn-export-pdf" onclick="confIrParaAutomacao()">Ir para a aba Automação</button>`
       : '';
     return;
@@ -387,9 +393,10 @@ async function confAplicar() {
   if (rogue) arquivos.push(new File([confMascarar(confEstado.trace.texto)], `Rogue_${caso.ct_id}_${carimbo}_trace_${ch.traceId}.json`, { type: 'application/json' }));
 
   if (r.sugestao !== 'pendente') salvarDadosExecucao(caso.ct_id, 'status', r.sugestao);
-  const atual = ((avaliacoesQA[caso.ct_id] || {}).comments || '').trim();
+  const atual = semNotasAuto((avaliacoesQA[caso.ct_id] || {}).comments);   // repetir o CT substitui a nota anterior
   const nota = `[Auto ${ch.inicio}] ${r.motivo}`;
   salvarDadosExecucao(caso.ct_id, 'comments', atual ? `${atual} | ${nota}` : nota);
+  await removerEvidenciasAuto(caso.ct_id);   // repetir o CT substitui a evidência automática anterior
   await anexarEvidencias(caso.ct_id, { files: arquivos, value: '' });
   const msg = `${caso.ct_id}: status ${r.sugestao === 'pendente' ? 'mantido' : 'atualizado'} e ${arquivos.length} evidência(s) anexada(s)`;
   if (confSilencioso) return r.sugestao;   // execução automática: sem janela nem aviso

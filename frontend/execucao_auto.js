@@ -6,7 +6,7 @@
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = 1.4;   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = 1.6;   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -73,21 +73,38 @@ function _execPassosChat(roteiro, massa, inicial) {
   let usouInicial = false;
   roteiro.passos.forEach((p, i) => {
     if (i === 0) return;                                 // _Start_
-    const anterior = roteiro.passos[i - 1] || {};
-    let opcoes = (p.entradas || []).filter(e => !_RX_PARECE_REGEX.test(e));
-    let texto = '';
-    const campo = _execCampoMassaDoEstado(anterior.estado);
-    if ((!opcoes.length || (p.entradas || []).some(e => _RX_PARECE_REGEX.test(e))) && campo && massa[campo]) {
-      texto = massa[campo]; opcoes = [];
-    } else if (!usouInicial && opcoes.some(o => /^sim\b/i.test(o))) {
-      texto = inicial; usouInicial = true;
-    } else if (opcoes.length) {
-      texto = opcoes[0];
-    }
     if (/^encerrar/i.test(p.acao || '') || p.estado === '-') return;
-    passos.push({ n: p.n, estado: p.estado, texto, opcoes, esperado: p.prompt_texto && p.prompt_texto !== '—' ? p.prompt_texto : '' });
+    const anterior = roteiro.passos[i - 1] || {};
+    const esperado = p.prompt_texto && p.prompt_texto !== '—' ? p.prompt_texto : '';
+    const base = { n: p.n, estado: p.estado, esperado };
+    // Transição de silêncio ("💤 Ficou em silêncio"): não manda nada e espera o bot reagir.
+    if (/sil[eê]ncio|no ?input|n[aã]o respondeu/i.test(p.acao || '')) {
+      passos.push({ ...base, tipo: 'silencio', texto: '', opcoes: [] });
+      return;
+    }
+    const entradas = p.entradas || [];
+    const opcoes = entradas.filter(e => !_RX_PARECE_REGEX.test(e));
+    const pedeDado = !opcoes.length || entradas.some(e => _RX_PARECE_REGEX.test(e));
+    const campo = _execCampoMassaDoEstado(anterior.estado);
+    if (pedeDado && campo) {
+      // O bot pede um dado (CPF, CNPJ, nome…): manda a massa; sem massa, o CT para com aviso.
+      passos.push(massa[campo]
+        ? { ...base, tipo: 'texto', texto: massa[campo], opcoes: [] }
+        : { ...base, tipo: 'falta_massa', campo, texto: '', opcoes: [] });
+      return;
+    }
+    if (!usouInicial && opcoes.some(o => /^sim\b/i.test(o))) {
+      usouInicial = true;
+      passos.push({ ...base, tipo: 'texto', texto: inicial, opcoes: [] });   // o "SIM" que inicia a jornada
+      return;
+    }
+    if (opcoes.length) {
+      passos.push({ ...base, tipo: 'botao', texto: opcoes[0], opcoes });     // clica no botão; o texto é a reserva
+      return;
+    }
+    passos.push({ ...base, tipo: 'auto', texto: '', opcoes: [] });           // o bot segue sozinho (API, switch)
   });
-  if (!usouInicial) passos.unshift({ n: 1, estado: '_Start_', texto: inicial, opcoes: [], esperado: '' });
+  if (!usouInicial) passos.unshift({ n: 1, estado: '_Start_', tipo: 'texto', texto: inicial, opcoes: [], esperado: '' });
   return passos;
 }
 
@@ -101,6 +118,7 @@ function _execPedido(ctId) {
       bot_numero: String(_autoValor('chatbot', 'bot_numero') || '551136310228').replace(/\D/g, ''),
       mensagem_inicial: inicial,
       passos: _execPassosChat(roteiro, massaDoCt(ctId), inicial),
+      fim_textos: roteiro.passos.filter(x => x.estado === '_End_' && x.prompt_texto && x.prompt_texto !== '—').map(x => x.prompt_texto),
     };
   }
   const destino = _autoDestinoEscolhido(tipo);

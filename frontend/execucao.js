@@ -95,7 +95,12 @@ function _execMostrarCtChat(ctId) {
   const caso = _execCaso(ctId);
   const pedido = _execPedido(ctId);
   const linhas = pedido.passos.map(p => `<tr><td>${p.n}</td><td>${escHtml(p.estado || '')}</td>
-      <td>${p.texto || (p.opcoes || []).length ? `<code>${escHtml(p.texto || p.opcoes[0])}</code>` : '<em>(o bot segue sozinho)</em>'}</td>
+      <td>${{
+        botao: `🔘 clicar <code>${escHtml(p.texto)}</code>`,
+        texto: `⌨️ enviar <code>${escHtml(p.texto)}</code>`,
+        silencio: '💤 ficar em silêncio',
+        falta_massa: `<span class="massa-divergente">⚠️ sem massa (${escHtml(p.campo || '')}) — preencha na Massa de Testes</span>`,
+      }[p.tipo] || '<em>(o bot segue sozinho)</em>'}</td>
       <td class="exec-g-ouvir">${escHtml((p.esperado || '').slice(0, 160))}</td></tr>`).join('');
   _execAbrir(`
     <h4 class="exec-g-titulo">${escHtml(ctId)} — ${escHtml(caso.estado)}</h4>

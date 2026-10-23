@@ -61,9 +61,47 @@ async function _execAplicarChat(ctId, pedido, res, eventos) {
     arquivos.push(new File([bin], `ChatBOT_${ctId}_${carimbo}.png`, { type: 'image/png' }));
   }
   if (r.sugestao !== 'pendente') salvarDadosExecucao(ctId, 'status', r.sugestao);
-  const atual = ((avaliacoesQA[ctId] || {}).comments || '').trim();
+  const atual = semNotasAuto((avaliacoesQA[ctId] || {}).comments);
   const nota = `[Auto ${agora.toLocaleTimeString('pt-BR')}] ${r.motivo}`;
   salvarDadosExecucao(ctId, 'comments', atual ? `${atual} | ${nota}` : nota);
+  await removerEvidenciasAuto(ctId);
   await anexarEvidencias(ctId, { files: arquivos, value: '' });
   return r.sugestao;
+}
+
+/* ─── Repetir um CT substitui o que a automação gravou antes ─── */
+const _PREFIXOS_EVID_AUTO = ['ChatBOT_', 'Log_URA_', 'Rogue_'];
+
+// Evidências geradas pela automação/conferência (os anexos feitos à mão pelo QA ficam).
+async function removerEvidenciasAuto(ctId) {
+  const antigas = (evidenciasPorCT[ctId] || []).filter(e => _PREFIXOS_EVID_AUTO.some(p => String(e.nome || '').startsWith(p)));
+  for (const e of antigas) await removerEvidencia(ctId, e.id);
+}
+
+// Tira do comentário as notas "[Auto …]" de execuções anteriores (o texto do QA fica).
+function semNotasAuto(comentario) {
+  return String(comentario || '').split(/\s*\|\s*/).filter(p => p && !/^\[Auto\b/.test(p)).join(' | ').trim();
+}
+
+/* ─── "🔎 Conferir evidência" no ChatBOT: mostra o print e a conversa da última execução ─── */
+function chatMostrarEvidencia(raiz, ctId) {
+  const lista = evidenciasPorCT[ctId] || [];
+  const png = [...lista].reverse().find(e => /^ChatBOT_.*\.png$/i.test(e.nome || ''));
+  const txt = [...lista].reverse().find(e => /^ChatBOT_.*\.txt$/i.test(e.nome || ''));
+  if (!png && !txt) {
+    raiz.innerHTML = `<p class="conf-alerta">⚠️ Este CT ainda não tem evidência do ChatBOT. Use <strong>▶ Executar → 💬 Conversar e executar</strong> (com o executor aberto) para gerar a conversa e o print.</p>`;
+    return;
+  }
+  const st = avaliacoesQA[ctId] || {};
+  raiz.innerHTML = `
+    <p class="bi-nota">Status: <strong>${escHtml(_STATUS_ROTULO[st.status] || 'Pendente')}</strong>${st.comments ? ` · ${escHtml(st.comments)}` : ''}</p>
+    ${png ? `<div class="chat-evid-print"><img id="chatEvidImg" alt="Print da conversa com o bot" /></div>` : ''}
+    ${txt ? `<details class="conf-detalhe" open><summary>Conversa e conferência (${escHtml(txt.nome)})</summary><pre class="exec-g-log" id="chatEvidTxt">carregando…</pre></details>` : ''}`;
+  if (png) {
+    const url = URL.createObjectURL(png.blob);
+    const img = document.getElementById('chatEvidImg');
+    img.onload = () => setTimeout(() => URL.revokeObjectURL(url), 1000);
+    img.src = url;
+  }
+  if (txt) txt.blob.text().then(t => { const el = document.getElementById('chatEvidTxt'); if (el) el.textContent = t; });
 }
