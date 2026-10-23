@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.43',
+    data: '23/10/2026',
+    itens: [
+      'Correção: "▶ Iniciar execução do plano" não abria com o ChatBOT selecionado (a janela procurava a URA/esteira, que não existe no ChatBOT). Agora mostra o bot do WhatsApp e oferece a execução automática; a guiada (ligação) fica só para URA.',
+    ],
+  },
+  {
     numero: '2.42',
     data: '23/10/2026',
     itens: [
