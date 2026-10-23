@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.4"
+VERSAO = "1.5"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -888,9 +888,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     print("=" * 64)
-    print(f"  MODELER ASSISTANT — EXECUTOR AVAYA v{VERSAO}")
+    print(f"  MODELER ASSISTANT — EXECUTOR DE TESTES v{VERSAO}")
     print(f"  Ouvindo em http://127.0.0.1:{PORTA}  (mantenha esta janela aberta)")
-    print("  One-X aberto:", "SIM" if _onex_aberto() else "NÃO — abra e faça login no Avaya one-X")
+    print("  URA (Avaya one-X aberto):", "SIM" if _onex_aberto() else "não (só é preciso para URA Legado/ROGUE)")
+    print("  ChatBOT: abre uma janela própria do Chrome com o WhatsApp Web ao executar")
     print("=" * 64, flush=True)
     threading.Thread(target=_trabalhador, daemon=True, name="onex").start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORTA), Handler)

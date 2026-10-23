@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.42',
+    data: '23/10/2026',
+    itens: [
+      'Executor 1.5: o iniciar_executor.bat não depende mais do requirements.txt (instala pywinauto e playwright pelo nome) e, se for aberto de dentro do .zip, avisa para extrair a pasta primeiro. Título e mensagens deixaram de citar só o Avaya: o mesmo executor atende URA e ChatBOT.',
+    ],
+  },
+  {
     numero: '2.41',
     data: '23/10/2026',
     itens: [

@@ -248,7 +248,7 @@ async function renderizarExecutorAuto() {
       <a class="btn-export-pdf exec-g-btn-ligar" href="${API}/api/executor/download" download>⬇️ Baixar executor (.zip)</a>
     </div>
     <ol class="exec-g-dica">
-      <li>Baixe o .zip, extraia numa pasta (ex.: Documentos\\ModelerExecutor) e dê dois cliques em <code>iniciar_executor.bat</code>. Na primeira vez ele prepara tudo (precisa do Python instalado).</li>
+      <li>Baixe o .zip, <strong>extraia</strong> (botão direito › Extrair tudo…) numa pasta (ex.: Documentos\\ModelerExecutor) e dê dois cliques no <code>iniciar_executor.bat</code> <strong>da pasta extraída</strong> — não de dentro do .zip. Na primeira vez ele prepara tudo (precisa do Python instalado).</li>
       <li>Deixe a janela preta aberta. Volte aqui e use <strong>▶ Iniciar execução do plano → 🤖 Automático</strong>.</li>
       <li>Preencha a massa (CPF, CEP, contrato…) na aba <strong>Massa de Testes</strong> para os passos que pedem dados.</li>
     </ol>`;
