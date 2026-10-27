@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.53',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.12 (baixe de novo): na entrada inválida, se o WhatsApp Web não aceitar o emoji, o executor envia "oi" (também não é um valor válido para o bot).',
+    ],
+  },
+  {
     numero: '2.52',
     data: '27/10/2026',
     itens: [

@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.11"
+VERSAO = "1.12"
 
 # A janela do executor (console do Windows) não mostra emoji: troca por "?" em vez de quebrar a execução
 # (o CT envia 😀 nas entradas inválidas e o bot manda emojis o tempo todo).
@@ -515,16 +515,27 @@ class WhatsAppWeb:
     def qtd_do_bot(self):
         return self.page.locator("div.message-in").count()
 
-    def enviar_texto(self, texto):
+    def enviar_texto(self, texto, alternativo=""):
+        """Digita e envia. Se o texto não entrar na caixa (ex.: emoji que o WhatsApp Web recusa) e houver
+        um alternativo, envia o alternativo. Devolve o que foi enviado."""
         caixa = self._caixa_texto()
         if caixa is None:
             raise RuntimeError("Não achei a caixa de mensagem do WhatsApp Web.")
+        # O WhatsApp Web desenha emoji como <img alt="😀">: conta o alt junto com o texto.
+        conteudo = lambda: (caixa.evaluate(
+            "e => e.innerText + Array.from(e.querySelectorAll('img[alt]')).map(i => i.alt).join('')") or "").strip()
         caixa.click()
         caixa.fill(texto)
-        if (caixa.inner_text() or "").strip() != texto.strip():   # algumas versões ignoram o fill
+        if texto.strip() not in conteudo():   # algumas versões ignoram o fill
             caixa.press("Control+A")
             caixa.press_sequentially(texto, delay=20)
+        if alternativo and texto.strip() not in conteudo():
+            caixa.press("Control+A")
+            caixa.press("Backspace")
+            caixa.fill(alternativo)
+            texto = alternativo
         caixa.press("Enter")
+        return texto
 
     def clicar_botao(self, opcoes):
         """Clica no botão do bot cujo texto bate com uma das opções (ex.: "Quero renovar"). True se clicou.
@@ -758,7 +769,8 @@ class Execucao:
                     self.ev(f"{alvo}: cliquei no botão “{opcoes[0]}”")
                 else:
                     enviar = texto or (opcoes[0] if opcoes else "")
-                    wa.enviar_texto(enviar)
+                    # Entrada inválida: se o emoji não for aceito, "oi" serve (também não é um valor válido).
+                    enviar = wa.enviar_texto(enviar, "oi" if tipo == "invalido" else "")
                     self.ev(f"{alvo}: enviei “{enviar}”" + (" (entrada inválida de propósito)" if tipo == "invalido" else "")
                             + (" (botão não encontrado na tela)" if tipo == "botao" else ""))
                 if sem_resposta:

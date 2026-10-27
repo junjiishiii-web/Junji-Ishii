@@ -7,7 +7,7 @@ const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 const GRAFANA_CHATBOT = 'http://10.169.0.216:30300';   // Grafana das evidências do ChatBOT (Conversation Finder; exige login)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = '1.11';   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = '1.12';   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return !!st && _execVersaoMenor(st.versao || '0', EXECUTOR_VERSAO_MIN); }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
