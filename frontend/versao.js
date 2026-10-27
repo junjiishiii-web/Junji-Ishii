@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.51',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.10 (baixe de novo): a evidência traz o link do trace da conversa no Grafana (Explore, mesmo formato do link usado pelo QA), no .txt e como "📈 Abrir o trace desta conversa no Grafana" no 🔎 Conferir evidência.',
+    ],
+  },
+  {
     numero: '2.50',
     data: '27/10/2026',
     itens: [

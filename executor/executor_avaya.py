@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.9"
+VERSAO = "1.10"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -650,7 +650,7 @@ class WhatsAppWeb:
                     continue
                 candidatos.append((comeco, t))
             if candidatos:
-                return {"trace": {"data": [sorted(candidatos, key=lambda x: x[0])[0][1]]}, "fonte": f.get("name")}
+                return {"trace": {"data": [sorted(candidatos, key=lambda x: x[0])[0][1]]}, "fonte": f.get("name"), "fonte_uid": f.get("uid")}
         return {"erro": "nenhum trace novo do ChatBOT no Grafana" + (f" ({'; '.join(erros)})" if erros else "")}
 
 
@@ -772,6 +772,8 @@ class Execucao:
                         r = wa.buscar_trace(grafana, self.inicio)
                         if r.get("trace"):
                             self.resultado["trace"] = r["trace"]
+                            self.resultado["trace_fonte_uid"] = r.get("fonte_uid") or ""
+                            self.resultado["grafana_url"] = grafana
                             self.ev(f"trace do Grafana obtido ({r.get('fonte')})")
                         else:
                             self.ev(f"trace não obtido: {r.get('erro')}")

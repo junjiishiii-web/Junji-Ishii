@@ -47,6 +47,14 @@ function _chatCompararSps(pedido, trace) {
   return { ch, sps, faltando: sps.filter(s => !s.achou).length };
 }
 
+// Link do Explore do Grafana que abre o trace da conversa (mesmo formato do link que o QA usa).
+function linkGrafanaTrace(grafana, fonteUid, traceId) {
+  if (!grafana || !traceId) return '';
+  const uid = fonteUid || GRAFANA_DS_UID_ROGUE;
+  const panes = { gmg: { datasource: uid, queries: [{ query: traceId, refId: 'A', datasource: { type: 'jaeger', uid } }], range: { from: 'now-30d', to: 'now' } } };
+  return `${String(grafana).replace(/\/+$/, '')}/explore?schemaVersion=1&panes=${encodeURIComponent(JSON.stringify(panes))}&orgId=1`;
+}
+
 async function _execAplicarChat(ctId, pedido, res, eventos) {
   const conversa = res.conversa || [];
   const r = _chatComparar(pedido, conversa);
@@ -60,9 +68,11 @@ async function _execAplicarChat(ctId, pedido, res, eventos) {
   const p2 = n => String(n).padStart(2, '0');
   const carimbo = `${agora.getFullYear()}${p2(agora.getMonth() + 1)}${p2(agora.getDate())}_${p2(agora.getHours())}${p2(agora.getMinutes())}${p2(agora.getSeconds())}`;
   const umaLinha = t => String(t || '').replace(/\s+/g, ' ').trim();
+  const link = rs ? linkGrafanaTrace(res.grafana_url || pedido.grafana_url, res.trace_fonte_uid, rs.ch.traceId) : '';
   const linhas = [
     `Conferência automática — ${ctId} (ChatBOT ${pedido.bot_numero})`,
     `Resultado sugerido: ${r.sugestao.toUpperCase()} — ${r.motivo}`,
+    ...(link ? [`Link do trace no Grafana: ${link}`] : []),
     '',
     'Respostas esperadas do bot:',
     ...r.itens.map(i => `  [${i.achou ? 'OK' : 'FALTA'}] step ${i.n} (${i.estado}): ${umaLinha(i.esperado).slice(0, 160)}`),
@@ -128,5 +138,16 @@ function chatMostrarEvidencia(raiz, ctId) {
     img.onload = () => setTimeout(() => URL.revokeObjectURL(url), 1000);
     img.src = url;
   }
-  if (txt) txt.blob.text().then(t => { const el = document.getElementById('chatEvidTxt'); if (el) el.textContent = t; });
+  if (txt) txt.blob.text().then(t => {
+    const el = document.getElementById('chatEvidTxt');
+    if (el) el.textContent = t;
+    // Link do trace (gravado no .txt pela execução automática): abre o Grafana na jornada desta conversa.
+    const m = /^Link do trace no Grafana: (\S+)/m.exec(t);
+    if (m && /^https?:\/\//.test(m[1]) && el) {
+      const p = document.createElement('p');
+      p.className = 'bi-nota';
+      p.innerHTML = `📈 <a href="${escHtml(m[1])}" target="_blank" rel="noopener">Abrir o trace desta conversa no Grafana ↗</a>`;
+      el.closest('details').before(p);
+    }
+  });
 }
