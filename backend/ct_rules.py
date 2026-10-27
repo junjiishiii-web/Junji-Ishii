@@ -37,6 +37,17 @@ _REJ_SIL_RE = re.compile(r"\bREJ\b|\bSIL\b|\bINV\b|\bINC\b|digitou algo diferent
 def _eh_transicao_rej_sil(condicao):
     return bool(_REJ_SIL_RE.search(condicao or ""))
 
+
+_RAMO_ERRO_RE = re.compile(
+    r"pela\s+\d|vez|[0-9]️?⃣|\[no input\]|sil[eê]ncio|menos que|algo diferente|n[aã]o confer|inv[aá]lid",
+    re.IGNORECASE,
+)
+
+
+def _eh_ramo_erro(condicao):
+    """Saida de erro/repeticao (por tentativa, silencio, entrada invalida): nao faz parte da jornada de ponta a ponta."""
+    return _eh_transicao_rej_sil(condicao) or bool(_RAMO_ERRO_RE.search(condicao or ""))
+
 BLOCO_PALETTE = [
     {"nome": "Navy", "header": "1F4E79", "fill": "DEEAF1"},
     {"nome": "Teal", "header": "006B6B", "fill": "D0ECEC"},
@@ -567,61 +578,72 @@ _ELSE_RE = re.compile(r"\belse\b|caso contr[aá]rio", re.IGNORECASE)
 _TERMINAL_RE = re.compile(r"^(?:transfer|_end_)", re.IGNORECASE)
 
 
-def _distancia_terminal(spec_model, inicio, visitados, limite=10):
-    """Saltos automaticos (sem digitar nada) de `inicio` ate uma transferencia/fim; None se nao ha."""
+_NEGATIVO_RE = re.compile(
+    r"inv[aá]lid|erro|falha|\bn[aã]o\b|recus|\bsair\b|bloque|timeout|sil[eê]ncio|rejeit|desist|cancel|desconhec|sem resposta|max(?:imo)?\b",
+    re.IGNORECASE,
+)
+_POSITIVO_RE = re.compile(r"v[aá]lid|sucesso|\bsim\b|confirm|correto|aceit|titular|eleg[ií]vel|\bok\b|continu|identificou|encontrou", re.IGNORECASE)
+
+
+def _distancia_terminal(spec_model, inicio, visitados, limite=25):
+    """Saltos de `inicio` ate uma transferencia/fim (estado sem saida) pelos ramos que NAO sao erro/silencio/
+    rejeicao — atravessa estados de coleta de dado e menus, porque o CT vai de ponta a ponta. None se nao ha."""
     from collections import deque
 
+    cache = spec_model.setdefault("_dist_cache", {})
+    if inicio in cache:
+        return cache[inicio]
     mapa = spec_model["mapa_rotas"]
+    estados = spec_model["estados"]
     fila = deque([(inicio, 0)])
-    vistos = set(visitados) | {inicio}
+    vistos = {inicio}
+    resultado = None
     while fila:
         estado, d = fila.popleft()
-        if _TERMINAL_RE.match(estado):
-            return d
-        if d >= limite:
+        dados = estados.get(estado)
+        if _TERMINAL_RE.match(estado) or (dados is not None and not dados.get("transicoes")):
+            resultado = d
+            break
+        if d >= limite or dados is None:
             continue
-        transicoes = (spec_model["estados"].get(estado) or {}).get("transicoes", [])
-        if any(_eh_transicao_rej_sil(t["condicao"]) or _INTERATIVO_RE.search(t["condicao"]) for t in transicoes):
-            continue
-        for t in transicoes:
+        for t in dados.get("transicoes", []):
+            if _eh_ramo_erro(t["condicao"]):
+                continue
             dest = resolver_destino(mapa, t["destino"])
             if dest and dest not in vistos:
                 vistos.add(dest)
                 fila.append((dest, d + 1))
-    return None
+    cache[inicio] = resultado
+    return resultado
 
 
-def _steps_jornada(spec_model, estado_atual, visitados, limite=14):
-    """Continua a jornada conforme a SPEC a partir do estado em que a
-    chamada acabou de cair (ex.: depois da ultima tentativa de REJ/SIL/
-    INV/INC que sai pra outro estado): segue a saida automatica de cada
-    estado (preferindo o "Else"/caso padrao) ate chegar num fim — _End_, um
-    estado sem saida — ou num estado que aguarda a escolha do usuario
-    (menu/DTMF/REJ/SIL), onde a jornada passa a depender do que ele digitar."""
+def _steps_jornada(spec_model, estado_atual, visitados, limite=25):
+    """Continua a jornada DE PONTA A PONTA a partir do estado em que o CT acabou: segue o caminho "feliz" da SPEC
+    — passando por estados de coleta de dado e menus — ate uma transferencia, _End_ ou estado sem saida. Em cada
+    estado escolhe a saida que nao e erro/silencio/rejeicao, preferindo condicoes positivas (valido, sucesso, sim...)
+    e a que chega mais rapido ao desfecho; empate: a mais facil."""
     steps = []
     atual = estado_atual
     for _ in range(limite):
         dados = spec_model["estados"].get(atual)
-        if not dados or atual.lower() == "_end_":
-            break
-        transicoes = dados.get("transicoes", [])
-        if any(_eh_transicao_rej_sil(t["condicao"]) or _INTERATIVO_RE.search(t["condicao"]) for t in transicoes):
+        if not dados or _TERMINAL_RE.match(atual):
             break
         candidatos = []
-        for t in transicoes:
+        for t in dados.get("transicoes", []):
+            if _eh_ramo_erro(t["condicao"]):
+                continue
             destino = resolver_destino(spec_model["mapa_rotas"], t["destino"])
             if destino and destino != atual and destino not in visitados:
                 candidatos.append((t, destino))
         if not candidatos:
             break
-        # prefere o ramo que chega MAIS RAPIDO a uma transferencia/fim (jornada ate o desfecho);
-        # empate: o mais facil (menos condicionais), depois o "Else".
         pontuados = []
         for idx_c, (tc, dc) in enumerate(candidatos):
             dist = _distancia_terminal(spec_model, dc, visitados | {atual})
-            pontuados.append(((dist if dist is not None else 99), _pontuar_transicao(tc), 0 if _ELSE_RE.search(tc["condicao"]) else 1, idx_c))
+            neg = len(_NEGATIVO_RE.findall(tc["condicao"] or "")) - len(_POSITIVO_RE.findall(tc["condicao"] or ""))
+            pontuados.append((neg, (dist if dist is not None else 99), _pontuar_transicao(tc), 0 if _ELSE_RE.search(tc["condicao"]) else 1, idx_c))
         melhor = min(pontuados)
-        t, destino = candidatos[melhor[3]]
+        t, destino = candidatos[melhor[4]]
         sp_t = _sp_efetivo_transicao(spec_model, atual, t)
         prompt, _dono = next(_candidatos_prompt_transicao(spec_model, atual, t), (None, None))
         prompt_id = prompt["id"] if prompt else "—"
@@ -635,13 +657,14 @@ def _steps_jornada(spec_model, estado_atual, visitados, limite=14):
         steps.append(
             {
                 "step_num": 0,
-                "acao": f"Seguir a jornada ({t['condicao']})",
+                "acao": _acao_para_step(1, t["condicao"], "aninao"),
                 "estado": destino,
                 "prompt_id": prompt_id,
                 "prompt_texto": prompt_texto,
                 "sp": sp_t,
                 "sp_prompt": sp_prompt,
                 "resultado": resultado,
+                "entradas": list(t.get("entradas") or []),
             }
         )
         visitados.add(destino)
@@ -935,6 +958,8 @@ def _formatar_resultado_esperado(steps, sp_final, sp_pendente):
 class GeradorCT:
     def __init__(self, spec_model, eep_model, tipo_a=True, progress_callback=None, modo_completo=False):
         self.modo_completo = modo_completo
+        self._ids_fixos = set()  # CTs que nao se fundem (ex.: um por target de transferencia)
+        self._consolidados = 0
         self._notas_caminho = {}
         self._bfs = self._bfs_completo if modo_completo else bfs_caminho_entrada
         self.spec_model = spec_model
@@ -1005,6 +1030,14 @@ class GeradorCT:
             novo = dict(extra)
             novo["step_num"] = len(steps) + 1
             steps.append(novo)
+        # TODO CT vai de PONTA A PONTA: depois do ponto de validacao a jornada segue ate a transferencia/fim.
+        if not str(alteracao or "").startswith("Cenário") and steps:
+            ultimo_estado = steps[-1].get("estado")
+            if ultimo_estado and ultimo_estado not in ("-", "—"):
+                visitados_ct = {st.get("estado") for st in steps}
+                for passo_jornada in _steps_jornada(self.spec_model, ultimo_estado, visitados_ct):
+                    passo_jornada["step_num"] = len(steps) + 1
+                    steps.append(passo_jornada)
         sps_todos = [sp for sp in (sps_todos or []) if sp]
         if sps_todos and not sp_final:
             sp_final = sps_todos[0]
@@ -1100,6 +1133,8 @@ class GeradorCT:
             "condicoes_massa": condicoes,
         }
         self.casos_teste.append(caso)
+        if str(alteracao or "").startswith("Cenário"):
+            self._ids_fixos.add(ct_id)
         return caso
 
     # ---------- L1-L4, L6-L8: CTs principais por estado alterado ----------
@@ -2398,6 +2433,94 @@ class GeradorCT:
                 )
         return linhas
 
+    def _consolidar_cts(self):
+        """Com todo CT indo de ponta a ponta, CTs cujo caminho ja esta contido em outro (mesmos estados e mesmas
+        transicoes, do inicio) viram UM so: o CT mais longo valida tudo o que o mais curto validava. Os SPs e as
+        condicoes seguem nos steps; o texto do CT ganha "Tambem valida". Renumera os CTs e atualiza a cobertura."""
+        if len(self.casos_teste) < 2:
+            return
+        finais = ("Encerrar a chamada", "Encerrar a chamada e validar o target")
+
+        def assinatura(c):
+            return tuple((st.get("estado"), st.get("acao")) for st in c["steps"] if st.get("acao") not in finais)
+
+        ordem = sorted(range(len(self.casos_teste)), key=lambda i: -len(self.casos_teste[i]["steps"]))
+        prefixos, fundidos, mantidos = {}, {}, set()
+        for i in ordem:
+            c = self.casos_teste[i]
+            if c["ct_id"] in self._ids_fixos:
+                mantidos.add(i)
+                continue
+            chave = (c["perfil"], bool(c["regressivo"]))
+            sg = assinatura(c)
+            sobrevivente = prefixos.get((chave, sg)) if sg else None
+            if sobrevivente is not None:
+                fundidos[i] = sobrevivente
+                continue
+            mantidos.add(i)
+            for k in range(1, len(sg) + 1):
+                prefixos.setdefault((chave, sg[:k]), i)
+        if not fundidos:
+            return
+
+        # une as informacoes dos CTs fundidos no sobrevivente
+        for i, j in sorted(fundidos.items()):
+            a, b = self.casos_teste[i], self.casos_teste[j]
+            b.setdefault("tambem_cobre", []).append(a["ct_id"])
+            sps_b = [x.strip() for x in str(b.get("sp_final") or "").split(",") if x.strip()]
+            for x in str(a.get("sp_final") or "").split(","):
+                x = x.strip()
+                if x and x not in sps_b:
+                    sps_b.append(x)
+            b["sp_final"] = ", ".join(sps_b) if sps_b else None
+            alt_a = str(a.get("alteracao_relatada") or "").strip()
+            if alt_a and alt_a not in str(b.get("alteracao_relatada") or ""):
+                b["alteracao_relatada"] = (str(b.get("alteracao_relatada") or "") + f" | Também valida: {alt_a[:160]}").strip(" |")
+            m = re.search(r"marcar o ScriptPoint ([^\s.]+)\.", b.get("gherkin") or "")
+            if m and len(sps_b) > 1:
+                b["gherkin"] = (b["gherkin"] or "").replace(
+                    m.group(0), "marcar os ScriptPoints " + ", ".join(x.split("=")[-1] for x in sps_b) + ".", 1
+                )
+
+        # renumera
+        novos = [i for i in range(len(self.casos_teste)) if i in mantidos]
+        mapa_ids = {}
+        for n, i in enumerate(novos, start=1):
+            c = self.casos_teste[i]
+            novo_id = f"CT-{n:02d}{'b' if c.get('sp_pendente') and self.tipo_a else ''}"
+            mapa_ids[c["ct_id"]] = novo_id
+        for i, j in fundidos.items():
+            mapa_ids[self.casos_teste[i]["ct_id"]] = mapa_ids[self.casos_teste[j]["ct_id"]]
+        for i in novos:
+            c = self.casos_teste[i]
+            c["ct_id"] = mapa_ids[c["ct_id"]]
+            c["id"] = c["ct_id"].replace("CT-", "")
+            c["tambem_cobre"] = [mapa_ids[x] for x in c.get("tambem_cobre", []) if x in mapa_ids]
+        self.casos_teste = [self.casos_teste[i] for i in novos]
+        for codigo, lista in list(self._sp_bi_cobertura.items()):
+            vistos = []
+            for x in lista:
+                nx = mapa_ids.get(x, x)
+                if nx not in vistos:
+                    vistos.append(nx)
+            self._sp_bi_cobertura[codigo] = vistos
+        for reg in self._sp_regressao.values():
+            vistos = []
+            for x in reg["cts"]:
+                nx = mapa_ids.get(x, x)
+                if nx not in vistos:
+                    vistos.append(nx)
+            reg["cts"] = vistos
+        self._consolidados = len(fundidos)
+        self.revisao_necessaria.append(
+            {
+                "tipo": "info_cts_consolidados",
+                "detalhe": f"{len(fundidos)} CT(s) foram unidos a outro porque todos os CTs vão de ponta a ponta e o caminho "
+                "deles já estava contido no CT que os cobre (mesmos estados e transições): nada deixou de ser validado — os "
+                "SPs e as condições continuam nos steps, e o texto do CT indica \"Também valida\".",
+            }
+        )
+
     def legenda_blocos(self):
         legenda = []
         for b in self._blocos:
@@ -2447,6 +2570,7 @@ class GeradorCT:
             self._progresso(78, "Gerando os CTs de transferência ATH dos cenários do EEP...")
             self.gerar_cts_transferencia()
         if not self.tipo_a:
+            self._consolidar_cts()
             return {
                 "casos_teste": self.casos_teste,
                 "revisao_necessaria": self.revisao_necessaria,
@@ -2511,6 +2635,7 @@ class GeradorCT:
                     "versão mas ainda sem SP publicado (SP PENDENTE), inclua manualmente o CT correspondente.",
                 }
             )
+        self._consolidar_cts()
         return {
             "casos_teste": self.casos_teste,
             "revisao_necessaria": self.revisao_necessaria,

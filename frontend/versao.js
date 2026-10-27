@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.46',
+    data: '27/10/2026',
+    itens: [
+      'Modelagem de PONTA A PONTA: todo CT agora segue a jornada até a transferência/fim da chamada, passando pelos estados de coleta de dado e menus (ex.: SwitchRecencia → ConfirmaDados → ... → transferência), pelo caminho feliz — ramos de erro/tentativas/silêncio ficam de fora.',
+      'CTs cujo caminho já está contido em outro CT (mesmos estados e transições) são unidos em um só: o texto traz "Também valida" e os SPs ficam somados. A quantidade total de CTs diminui e nada deixa de ser validado. CTs de cenário de transferência (um por target) não são unidos.',
+    ],
+  },
+  {
     numero: '2.45',
     data: '27/10/2026',
     itens: [
