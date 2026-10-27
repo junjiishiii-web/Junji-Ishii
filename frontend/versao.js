@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.47',
+    data: '27/10/2026',
+    itens: [
+      'Executor: o download sai com a versão no nome (ModelerExecutor_v1.6.zip, pasta ModelerExecutor_v1.6), para não confundir com downloads antigos. A seção "Executor automático" mostra a versão disponível para download e a que está rodando na máquina, e avisa quando há uma mais nova.',
+    ],
+  },
+  {
     numero: '2.46',
     data: '27/10/2026',
     itens: [
