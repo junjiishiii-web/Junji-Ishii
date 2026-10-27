@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.49',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.8 (baixe de novo): depois de cada conversa busca o trace no Grafana do ChatBOT (http://10.169.0.216:30300, Conversation Finder) e confere os SPs esperados do CT (spt/spp), além das respostas do bot. Faltou SP = Não OK. O trace (.json) entra na evidência junto com a conversa e o print.',
+      'Esse Grafana exige login: na 1ª vez o executor abre o Grafana na própria janela do Chrome dele para você entrar com seu usuário; a sessão fica salva no perfil do executor (a senha não passa pelo executor nem pelo site). Sem login, a conferência continua só pela conversa.',
+    ],
+  },
+  {
     numero: '2.48',
     data: '27/10/2026',
     itens: [

@@ -35,9 +35,27 @@ function _chatComparar(pedido, conversa) {
   return { itens, sugestao, motivo };
 }
 
+// SPs esperados do CT x SPs marcados no trace do Grafana (mesma leitura do ROGUE: spTransition/spPrompt).
+function _chatCompararSps(pedido, trace) {
+  const ch = trace ? confLerTraceRogue(trace) : null;
+  if (!ch) return null;
+  const marcados = new Set(ch.sps.map(s => s.codigo));
+  const sps = (pedido.sps_esperados || []).map(s => {
+    const codigo = (String(s).split('=').pop() || '').trim();
+    return { esperado: s, codigo, achou: marcados.has(codigo) };
+  });
+  return { ch, sps, faltando: sps.filter(s => !s.achou).length };
+}
+
 async function _execAplicarChat(ctId, pedido, res, eventos) {
   const conversa = res.conversa || [];
   const r = _chatComparar(pedido, conversa);
+  const rs = _chatCompararSps(pedido, res.trace);
+  if (rs && rs.sps.length) {
+    // Com o trace, os SPs também decidem: faltou SP = Não OK.
+    if (rs.faltando) { r.sugestao = 'nok'; r.motivo += ` ${rs.faltando} de ${rs.sps.length} SP(s) esperados NÃO foram marcados no Grafana.`; }
+    else { r.motivo += ` Todos os ${rs.sps.length} SP(s) esperados foram marcados no Grafana.`; if (r.sugestao === 'pendente') r.sugestao = 'ok'; }
+  }
   const agora = new Date();
   const p2 = n => String(n).padStart(2, '0');
   const carimbo = `${agora.getFullYear()}${p2(agora.getMonth() + 1)}${p2(agora.getDate())}_${p2(agora.getHours())}${p2(agora.getMinutes())}${p2(agora.getSeconds())}`;
@@ -49,6 +67,10 @@ async function _execAplicarChat(ctId, pedido, res, eventos) {
     'Respostas esperadas do bot:',
     ...r.itens.map(i => `  [${i.achou ? 'OK' : 'FALTA'}] step ${i.n} (${i.estado}): ${umaLinha(i.esperado).slice(0, 160)}`),
     '',
+    ...(rs ? ['SPs esperados (Grafana):', ...rs.sps.map(s => `  [${s.achou ? 'OK' : 'FALTA'}] ${s.esperado}`),
+      `SPs marcados no trace ${rs.ch.traceId}: ${rs.ch.sps.map(s => s.codigo).join(', ')}`, '',
+      '================ JORNADA NO GRAFANA (trace) ================', ...rs.ch.linhas, '']
+      : ['SPs: trace do Grafana não obtido (conferência só pela conversa).', '']),
     '================ CONVERSA ================',
     ...conversa.map(m => `${m.hora || ''} ${m.de === 'bot' ? 'BOT' : 'QA '}: ${umaLinha(m.texto)}${(m.botoes || []).length ? `  [botões: ${m.botoes.join(' | ')}]` : ''}`),
     '',
@@ -59,6 +81,9 @@ async function _execAplicarChat(ctId, pedido, res, eventos) {
   if (res.print_png_b64) {
     const bin = Uint8Array.from(atob(res.print_png_b64), c => c.charCodeAt(0));
     arquivos.push(new File([bin], `ChatBOT_${ctId}_${carimbo}.png`, { type: 'image/png' }));
+  }
+  if (res.trace) {
+    arquivos.push(new File([JSON.stringify(res.trace, null, 1)], `ChatBOT_${ctId}_${carimbo}_trace${rs ? '_' + rs.ch.traceId : ''}.json`, { type: 'application/json' }));
   }
   if (r.sugestao !== 'pendente') salvarDadosExecucao(ctId, 'status', r.sugestao);
   const atual = semNotasAuto((avaliacoesQA[ctId] || {}).comments);

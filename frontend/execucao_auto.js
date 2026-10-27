@@ -5,8 +5,9 @@
 
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
+const GRAFANA_CHATBOT = 'http://10.169.0.216:30300';   // Grafana das evidências do ChatBOT (Conversation Finder; exige login)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = 1.7;   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = 1.8;   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -118,6 +119,8 @@ function _execPedido(ctId) {
       bot_numero: String(_autoValor('chatbot', 'bot_numero') || '551136310228').replace(/\D/g, ''),
       mensagem_inicial: inicial,
       espera_resposta: Math.max(30, parseInt(_autoValor('chatbot', 'bot_espera'), 10) || 180),
+      grafana_url: _autoValor('chatbot', 'grafana_url') || GRAFANA_CHATBOT,
+      sps_esperados: roteiro.sps_esperados || [],
       passos: _execPassosChat(roteiro, massaDoCt(ctId), inicial),
       fim_textos: roteiro.passos.filter(x => x.estado === '_End_' && x.prompt_texto && x.prompt_texto !== '—').map(x => x.prompt_texto),
     };
@@ -260,7 +263,7 @@ async function renderizarExecutorAuto() {
   if (!el) return;
   el.innerHTML = `
     ${autoConfig.tipo === 'chatbot'
-      ? `<p class="bi-nota">Para a ferramenta <strong>conversar sozinha com o bot</strong> (começa com “SIM”, clica nos botões e manda os dados da massa), rode o executor nesta máquina. Ele abre uma <strong>janela própria do Chrome com o WhatsApp Web</strong>: na 1ª vez, leia o QR code com o celular (WhatsApp › Aparelhos conectados › Conectar aparelho). A conversa e um print viram a evidência de cada CT.</p>`
+      ? `<p class="bi-nota">Para a ferramenta <strong>conversar sozinha com o bot</strong> (começa com “SIM”, clica nos botões e manda os dados da massa), rode o executor nesta máquina. Ele abre uma <strong>janela própria do Chrome com o WhatsApp Web</strong>: na 1ª vez, leia o QR code com o celular (WhatsApp › Aparelhos conectados › Conectar aparelho). Depois de cada conversa ele busca o trace no <strong>Grafana do ChatBOT</strong> (${escHtml(_autoValor('chatbot', 'grafana_url') || GRAFANA_CHATBOT)}) para conferir os SPs: na 1ª vez abre o Grafana nessa mesma janela para você <strong>fazer login</strong> (a sessão fica salva; a senha não passa pelo executor nem pelo site). A conversa, o print e o trace viram a evidência de cada CT.</p>`
       : `<p class="bi-nota">Para a ferramenta <strong>ligar sozinha</strong> pelo Avaya one-X e digitar os passos de cada CT, rode o executor nesta máquina (na VPN, com o one-X aberto e logado). Ele não usa o mouse nem o teclado: dá para continuar trabalhando.</p>`}
     <div class="exec-g-ligar">
       <div>

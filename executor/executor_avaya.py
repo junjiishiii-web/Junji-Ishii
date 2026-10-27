@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.7"
+VERSAO = "1.8"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -576,6 +576,74 @@ class WhatsAppWeb:
         except Exception:
             return b""
 
+    # ── Grafana do ChatBOT (exige login): usa a sessão da própria janela do executor ──
+    def _grafana_json(self, url):
+        r = self._ctx.request.get(url, headers={"Accept": "application/json"}, ignore_https_errors=True, timeout=20000)
+        return r.status, (r.json() if r.ok else None)
+
+    def grafana_logado(self, grafana):
+        try:
+            st, _ = self._grafana_json(f"{grafana.rstrip('/')}/api/user")
+            return st == 200
+        except Exception:
+            return False
+
+    def garantir_login_grafana(self, grafana, ev, parar, limite=240):
+        """Na 1ª vez abre o Grafana numa aba desta janela para o QA fazer login (a sessão fica salva no perfil
+        do executor; a senha não passa pelo executor nem pelo site)."""
+        self.abrir()
+        if self.grafana_logado(grafana):
+            return True
+        aba = self._ctx.new_page()
+        aba.goto(f"{grafana.rstrip('/')}/login", wait_until="domcontentloaded")
+        ev(f"Grafana pede login: entre com seu usuário na aba do Grafana que abriu na janela do Chrome do executor (uma vez só)")
+        fim = time.time() + limite
+        while time.time() < fim:
+            if parar.wait(3):
+                raise _Parado()
+            if self.grafana_logado(grafana):
+                ev("login no Grafana ok")
+                try:
+                    aba.close()
+                except Exception:
+                    pass
+                self.page.bring_to_front()
+                return True
+        return False
+
+    def buscar_trace(self, grafana, inicio, ignorar_ids=()):
+        """Trace da conversa que começou depois do início do CT (canal digital, não voz)."""
+        base = grafana.rstrip("/")
+        st, cfg = self._grafana_json(f"{base}/api/frontend/settings")
+        if st != 200 or not cfg:
+            return {"erro": f"Grafana respondeu {st} ao listar as fontes de dados"}
+        fontes = [v for v in (cfg.get("datasources") or {}).values() if v.get("type") == "jaeger"]
+        if not fontes:
+            return {"erro": "nenhuma fonte Jaeger neste Grafana"}
+        ini_us = int((inicio.timestamp() - 30) * 1_000_000)
+        fim_us = int((time.time() + 60) * 1_000_000)
+        erros = []
+        for f in fontes:
+            st, dados = self._grafana_json(f"{base}/api/datasources/proxy/uid/{f['uid']}/api/traces"
+                                           f"?service=Conversation&start={ini_us}&end={fim_us}&limit=40")
+            if st != 200 or not dados:
+                erros.append(f"{f.get('name')}: HTTP {st}")
+                continue
+            candidatos = []
+            for t in dados.get("data") or []:
+                spans = t.get("spans") or []
+                if not spans or t.get("traceID") in ignorar_ids:
+                    continue
+                comeco = min(s.get("startTime", 0) for s in spans)
+                canais = {str(tg.get("value", "")).lower() for s in spans for tg in (s.get("tags") or [])
+                          if tg.get("key") in ("channel", "sessionContext.channel", "sessionContext.subChannel")}
+                if comeco < ini_us or "voice" in canais:
+                    continue
+                candidatos.append((comeco, t))
+            if candidatos:
+                return {"trace": {"data": [sorted(candidatos, key=lambda x: x[0])[0][1]]}, "fonte": f.get("name")}
+        return {"erro": "nenhum trace novo do ChatBOT no Grafana" + (f" ({'; '.join(erros)})" if erros else "")}
+
 
 class Execucao:
     def __init__(self, pedido):
@@ -685,6 +753,25 @@ class Execucao:
             self.resultado = {"tipo": "chatbot", "conversa": conversa,
                               "print_png_b64": base64.b64encode(png).decode("ascii") if png else ""}
             self.ev(f"conversa registrada ({len(conversa)} mensagens)")
+
+            # Evidência no Grafana do ChatBOT (SPs da jornada): busca o trace desta conversa.
+            grafana = str(p.get("grafana_url") or "").strip()
+            if grafana:
+                try:
+                    if wa.garantir_login_grafana(grafana, self.ev, self.parar):
+                        self._dormir(p.get("espera_trace", 15))   # o trace leva alguns segundos para chegar ao Grafana
+                        r = wa.buscar_trace(grafana, self.inicio)
+                        if r.get("trace"):
+                            self.resultado["trace"] = r["trace"]
+                            self.ev(f"trace do Grafana obtido ({r.get('fonte')})")
+                        else:
+                            self.ev(f"trace não obtido: {r.get('erro')}")
+                    else:
+                        self.ev("sem login no Grafana: a conferência fica só pela conversa")
+                except _Parado:
+                    raise
+                except Exception as e:
+                    self.ev(f"trace não obtido: {type(e).__name__}: {e}")
             self.estado = "concluida"
         except _Parado:
             self.estado = "parado"
