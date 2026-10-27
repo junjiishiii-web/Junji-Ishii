@@ -44,6 +44,30 @@ _RAMO_ERRO_RE = re.compile(
 )
 
 
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\u2190-\u21FF\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\ufe0f\u20e3\u200d]+"
+)
+
+
+def _sem_emoji(txt):
+    return re.sub(r"\s+", " ", _EMOJI_RE.sub(" ", str(txt or ""))).strip(" >-")
+
+
+def _condicao_do_ct(alteracao, transicao_final):
+    """(condicao especifica, contexto): a ULTIMA condicao do caminho de condicoes do CT ("A > B > C" -> "C") e as
+    anteriores como contexto. Vem da alteracao ("... — condição: A > B > C") ou da transicao do CT."""
+    texto = ""
+    m = re.search(r"condi[cç][aã]o:\s*(.+)$", str(alteracao or ""), re.IGNORECASE | re.DOTALL)
+    if m:
+        texto = m.group(1)
+    elif transicao_final is not None:
+        texto = transicao_final.get("condicao") or ""
+    partes = [_sem_emoji(x) for x in re.split(r"\s>\s", texto) if _sem_emoji(x)]
+    if not partes:
+        return "", []
+    return partes[-1], partes[:-1]
+
+
 def _eh_ramo_erro(condicao):
     """Saida de erro/repeticao (por tentativa, silencio, entrada invalida): nao faz parte da jornada de ponta a ponta."""
     return _eh_transicao_rej_sil(condicao) or bool(_RAMO_ERRO_RE.search(condicao or ""))
@@ -1030,6 +1054,7 @@ class GeradorCT:
             novo = dict(extra)
             novo["step_num"] = len(steps) + 1
             steps.append(novo)
+        n_validacao = len(steps)
         # TODO CT vai de PONTA A PONTA: depois do ponto de validacao a jornada segue ate a transferencia/fim.
         if not str(alteracao or "").startswith("Cenário") and steps:
             ultimo_estado = steps[-1].get("estado")
@@ -1068,9 +1093,21 @@ class GeradorCT:
         if gherkin_override:
             gherkin = abreviar_gherkin(gherkin_override)
         else:
-            prefixo = f"Dado cliente {perfil_txt} na jornada de homologação, Quando percorrer o caminho de entrada até o estado {estado} ("
-            sufixo = f"), Então URA deve {resultado_gherkin}."
-            gherkin = montar_gherkin(prefixo, alteracao or "garantia de fluxo", sufixo)
+            cond_ct, contexto_ct = _condicao_do_ct(alteracao, transicao_final)
+            passo_val = steps[n_validacao - 1] if 0 < n_validacao <= len(steps) else {}
+            if cond_ct and len(steps) >= 2 and n_validacao >= 2:
+                destino_txt = passo_val.get("estado")
+                prompt_id = passo_val.get("prompt_id")
+                alvo_txt = f"ir para o estado {destino_txt}" if destino_txt and destino_txt not in ("-", "—") else "seguir o fluxo"
+                if prompt_id and prompt_id not in ("-", "—"):
+                    alvo_txt += f" (prompt {prompt_id})"
+                prefixo = f"Dado cliente {perfil_txt} na jornada de homologação, Quando "
+                sufixo = f", Então URA deve {alvo_txt} e {resultado_gherkin}."
+                gherkin = montar_gherkin(prefixo, cond_ct, sufixo)
+            else:
+                prefixo = f"Dado cliente {perfil_txt} na jornada de homologação, Quando percorrer o caminho de entrada até o estado {estado} ("
+                sufixo = f"), Então URA deve {resultado_gherkin}."
+                gherkin = montar_gherkin(prefixo, alteracao or "garantia de fluxo", sufixo)
 
         sufixo = "b" if sp_pendente and self.tipo_a else ""
         ct_id = self._novo_id(sufixo)
@@ -1107,7 +1144,17 @@ class GeradorCT:
         # requisitos de verdade.
         requisitos_massa = " | ".join(pre_req_partes)
         condicoes = _condicoes_da_massa(perfil, restricoes, tags, condicoes_massa, steps)
-        pre_req_partes.append(f"Alteração: {alteracao}" if alteracao else "Garantia de fluxo principal")
+        cond_pre, contexto_pre = _condicao_do_ct(alteracao, transicao_final)
+        if cond_pre and not gherkin_override:
+            pre_req_partes.append(f"Estado: {estado}")
+            if contexto_pre:
+                pre_req_partes.append("Caminho de condições: " + " → ".join(contexto_pre))
+            pre_req_partes.append(f"Condição a validar: {cond_pre}")
+            alt_txt = re.sub(r"\s*[—-]\s*condi[cç][aã]o:.*$", "", str(alteracao or ""), flags=re.IGNORECASE | re.DOTALL).strip()
+            if alt_txt and alt_txt != "Cobertura completa da SPEC":
+                pre_req_partes.append(f"Alteração: {alt_txt}")
+        else:
+            pre_req_partes.append(f"Alteração: {alteracao}" if alteracao else "Garantia de fluxo principal")
         pre_requisito = " | ".join(pre_req_partes)
 
         caso = {

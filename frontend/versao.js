@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.47',
+    data: '27/10/2026',
+    itens: [
+      'Nome do CT mais claro: "Dado cliente ..., Quando <a condição específica que o CT valida>, Então URA deve ir para o estado X (prompt Y) e marcar o ScriptPoint N" — sem emojis e sem o texto genérico "percorrer o caminho de entrada até o estado".',
+      'Pré-requisito mais claro: ANI, Estado, Caminho de condições (as condições anteriores) e Condição a validar, em campos separados.',
+    ],
+  },
+  {
     numero: '2.56',
     data: '27/10/2026',
     itens: [
