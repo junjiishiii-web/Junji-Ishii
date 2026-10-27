@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.12"
+VERSAO = "1.13"
 
 # A janela do executor (console do Windows) não mostra emoji: troca por "?" em vez de quebrar a execução
 # (o CT envia 😀 nas entradas inválidas e o bot manda emojis o tempo todo).
@@ -589,16 +589,65 @@ class WhatsAppWeb:
         tn = _norm(texto)
         return any(f and _norm(f)[:40] and _norm(f)[:40] in tn for f in fim_textos)
 
-    def print_png(self):
-        """Print só da conversa com o bot (o painel #main: cabeçalho com o nome do bot, mensagens e botões),
-        sem a lista de conversas. Se o painel não for achado, tira da janela inteira."""
+    # Prepara o print da conversa inteira: esconde as mensagens de CTs anteriores (antes de "inicio") e
+    # devolve quanto falta de altura para a lista de mensagens caber sem rolagem.
+    _JS_PREPARA_PRINT = """(inicio) => {
+      const main = document.querySelector('#main');
+      if (!main) return -1;
+      const msgs = [...document.querySelectorAll('div.message-in, div.message-out')];
+      if (inicio > 0 && msgs[inicio] && msgs[inicio - 1]) {
+        // linha do 1º balão deste CT (filha do mesmo pai que as linhas anteriores) e tudo antes dela some
+        let r = msgs[inicio];
+        while (r.parentElement && !r.parentElement.contains(msgs[inicio - 1])) r = r.parentElement;
+        for (let a = r.previousElementSibling; a; a = a.previousElementSibling) {
+          if (a.dataset.maOculto === undefined) { a.dataset.maOculto = a.style.display; a.style.display = 'none'; }
+        }
+      }
+      let lista = msgs.length ? msgs[msgs.length - 1].parentElement : null;
+      while (lista && lista !== main) {
+        const o = getComputedStyle(lista).overflowY;
+        if ((o === 'auto' || o === 'scroll') && lista.scrollHeight > lista.clientHeight + 2) break;
+        lista = lista.parentElement;
+      }
+      if (!lista || lista === main) return 0;
+      lista.dataset.maLista = '1';
+      return lista.scrollHeight - lista.clientHeight;
+    }"""
+
+    _JS_DESFAZ_PRINT = """() => {
+      document.querySelectorAll('[data-ma-oculto]').forEach(a => { a.style.display = a.dataset.maOculto; delete a.dataset.maOculto; });
+      const l = document.querySelector('[data-ma-lista]');
+      if (l) { delete l.dataset.maLista; l.scrollTop = l.scrollHeight; }
+    }"""
+
+    def print_png(self, inicio=0):
+        """Print da conversa deste CT com o bot, inteira e sem corte: o painel #main (cabeçalho com o nome do
+        bot, mensagens e botões), sem a lista de conversas e sem as conversas dos CTs anteriores. A janela é
+        esticada na altura só durante o print para todas as mensagens caberem. Sem o painel, tira da janela."""
+        tamanho = None
         try:
             self.expandir_ler_mais()
             painel = self.page.locator("#main")
             if painel.count():
-                return painel.first.screenshot()
+                tamanho = self.page.viewport_size
+                falta = self.page.evaluate(self._JS_PREPARA_PRINT, int(inicio or 0))
+                if tamanho and falta and falta > 0:
+                    self.page.set_viewport_size({"width": tamanho["width"],
+                                                 "height": min(tamanho["height"] + falta + 40, 15000)})
+                    time.sleep(1.0)
+                    self.page.evaluate(self._JS_PREPARA_PRINT, int(inicio or 0))   # mensagens antigas que carregaram
+                    self.page.evaluate("() => { const l = document.querySelector('[data-ma-lista]'); if (l) l.scrollTop = 0; }")
+                    time.sleep(0.4)
+                return painel.first.screenshot(scale="css")
         except Exception:
             pass
+        finally:
+            try:
+                self.page.evaluate(self._JS_DESFAZ_PRINT)
+                if tamanho:
+                    self.page.set_viewport_size(tamanho)
+            except Exception:
+                pass
         try:
             return self.page.screenshot(full_page=False)
         except Exception:
@@ -802,7 +851,7 @@ class Execucao:
             self._dormir(p.get("espera_final_chat", 3))
             todas = wa.mensagens()
             conversa = todas[max(0, inicio_conversa - 1):]
-            png = wa.print_png()
+            png = wa.print_png(inicio_conversa)
             import base64
             self.resultado = {"tipo": "chatbot", "conversa": conversa, "passos_exec": passos_exec,
                               "print_png_b64": base64.b64encode(png).decode("ascii") if png else ""}
