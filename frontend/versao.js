@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.48',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.7 (baixe de novo): espera até 3 min pela resposta do bot (antes 45 s; o bot de HML às vezes leva mais de 1 min). O tempo pode ser mudado em 🤖 Automação → ChatBOT → "Tempo máximo esperando a resposta do bot". Se o bot não responder nesse tempo, o CT para em vez de mandar o próximo passo e misturar a conversa.',
+      'Mensagens longas do bot cortadas com "Ler mais" são abertas antes de ler a conversa, para a conferência ver o texto inteiro.',
+    ],
+  },
+  {
     numero: '2.47',
     data: '27/10/2026',
     itens: [

@@ -6,7 +6,7 @@
 const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = 1.6;   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = 1.7;   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return st && parseFloat(st.versao || '0') < EXECUTOR_VERSAO_MIN; }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -117,6 +117,7 @@ function _execPedido(ctId) {
       ct_id: ctId, tecnologia: 'chatbot',
       bot_numero: String(_autoValor('chatbot', 'bot_numero') || '551136310228').replace(/\D/g, ''),
       mensagem_inicial: inicial,
+      espera_resposta: Math.max(30, parseInt(_autoValor('chatbot', 'bot_espera'), 10) || 180),
       passos: _execPassosChat(roteiro, massaDoCt(ctId), inicial),
       fim_textos: roteiro.passos.filter(x => x.estado === '_End_' && x.prompt_texto && x.prompt_texto !== '—').map(x => x.prompt_texto),
     };

@@ -72,7 +72,8 @@ const AUTO_CAMPOS = [
   { id: 'bot_numero', grupo: 'geral', rotulo: 'Número do bot no WhatsApp', dica: 'ex.: +55 11 9xxxx-xxxx', tipos: ['chatbot'], obrigatorio: true },
   { id: 'bot_origem', grupo: 'geral', rotulo: 'Número de teste que conversa', tipos: ['chatbot'], obrigatorio: true },
   { id: 'bot_canal', grupo: 'geral', rotulo: 'Canal', tipo: 'select', opcoes: ['WhatsApp Web', 'WhatsApp no celular', 'API / simulador web'], tipos: ['chatbot'], obrigatorio: true },
-  { id: 'bot_msg_inicial', grupo: 'geral', rotulo: 'Mensagem que inicia a conversa', dica: 'ex.: Oi', tipos: ['chatbot'] },
+  { id: 'bot_msg_inicial', grupo: 'geral', rotulo: 'Mensagem que inicia a conversa', dica: 'SIM', tipos: ['chatbot'] },
+  { id: 'bot_espera', grupo: 'geral', rotulo: 'Tempo máximo esperando a resposta do bot (segundos)', dica: '180', tipos: ['chatbot'] },
   { id: 'massa_padrao', grupo: 'geral', rotulo: 'Massa padrão (CPF / CNPJ / contrato)', dica: 'usada quando o CT não tiver massa própria', tipos: '*' },
   { id: 'intervalo', grupo: 'geral', rotulo: 'Intervalo entre CTs (segundos)', dica: '30', tipos: '*' },
 

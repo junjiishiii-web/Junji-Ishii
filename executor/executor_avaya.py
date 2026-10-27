@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.6"
+VERSAO = "1.7"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -473,8 +473,24 @@ class WhatsAppWeb:
                 return loc.last
         return None
 
+    def expandir_ler_mais(self):
+        """Mensagens longas do bot vêm cortadas com "Ler mais": abre para ler o texto inteiro."""
+        try:
+            return self.page.evaluate("""() => {
+              let n = 0;
+              document.querySelectorAll('#main div[role="button"], #main span[role="button"], #main a').forEach(el => {
+                const t = (el.innerText || '').trim().toLowerCase();
+                if (t === 'ler mais' || t === 'read more') { el.click(); n++; }
+              });
+              return n;
+            }""")
+        except Exception:
+            return 0
+
     def mensagens(self):
         """Mensagens da conversa aberta: [{de: 'bot'|'qa', hora, texto, botoes}] (as que estão carregadas)."""
+        if self.expandir_ler_mais():
+            time.sleep(0.4)
         return self.page.evaluate("""() => {
           const saida = [];
           document.querySelectorAll('div.message-in, div.message-out').forEach(m => {
@@ -621,7 +637,7 @@ class Execucao:
                 self.ev("conversa anterior encerrada")
             self.estado = "em_chamada"
             inicio_conversa = len(wa.mensagens())
-            espera = float(p.get("espera_resposta", 45))
+            espera = float(p.get("espera_resposta", 180))   # o bot de HML às vezes leva mais de 1 min
             for passo in p.get("passos") or []:
                 if self.parar.is_set():
                     raise _Parado()
@@ -649,7 +665,10 @@ class Execucao:
                     wa.enviar_texto(enviar)
                     self.ev(f"{alvo}: enviei “{enviar}”" + (" (botão não encontrado na tela)" if tipo == "botao" else ""))
                 novas = self._esperar_bot(wa, antes, espera)
-                self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns)" if novas else f"{alvo}: o bot não respondeu em {int(espera)} s")
+                if not novas:
+                    # Não manda o próximo passo sem resposta: atropelaria a conversa (o bot responderia ao passo errado).
+                    raise RuntimeError(f"{alvo}: o bot não respondeu em {int(espera // 60)} min {int(espera % 60)} s — CT interrompido para não misturar a conversa.")
+                self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns)")
 
             # Fim do CT: espera o bot encerrar (despedida) para o próximo CT começar numa conversa nova.
             if wa.conversa_encerrada(fim_textos):
