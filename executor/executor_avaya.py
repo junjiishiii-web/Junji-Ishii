@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.8"
+VERSAO = "1.9"
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -571,6 +571,15 @@ class WhatsAppWeb:
         return any(f and _norm(f)[:40] and _norm(f)[:40] in tn for f in fim_textos)
 
     def print_png(self):
+        """Print só da conversa com o bot (o painel #main: cabeçalho com o nome do bot, mensagens e botões),
+        sem a lista de conversas. Se o painel não for achado, tira da janela inteira."""
+        try:
+            self.expandir_ler_mais()
+            painel = self.page.locator("#main")
+            if painel.count():
+                return painel.first.screenshot()
+        except Exception:
+            pass
         try:
             return self.page.screenshot(full_page=False)
         except Exception:

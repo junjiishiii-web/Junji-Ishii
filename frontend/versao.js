@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.50',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.9 (baixe de novo): o print da evidência mostra só a conversa com o bot (cabeçalho, mensagens e botões), sem a lista de conversas nem o resto da janela; mensagens com "Ler mais" já aparecem abertas.',
+    ],
+  },
+  {
     numero: '2.49',
     data: '27/10/2026',
     itens: [
