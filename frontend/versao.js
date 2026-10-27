@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.45',
+    data: '27/10/2026',
+    itens: [
+      'Massa de Testes: 📎 Importar massa de uma planilha (Excel/CSV) em qualquer formato — blocos com título (ex.: "CEP NÃO CABEADO" com CEP/NÚMERO, "CLIENTE MÓVEL REPROVADO" com CPFs), tabela (uma massa por linha, com colunas de perfil/crédito/observação) ou valores soltos. A ferramenta reconhece CPF, CNPJ, CEP, nº, contrato, nome, e-mail, nascimento e celular, e escolhe a massa de cada CT comparando a descrição da massa com a condição do CT (grupo/cabeamento, cliente Claro Móvel, crédito), usando linhas diferentes para CTs diferentes.',
+      'Antes de gravar, uma prévia mostra a massa de cada CT, de onde ela veio e os CTs sem massa que combine (em amarelo). Ao aplicar, ela vira a massa própria do CT.',
+    ],
+  },
+  {
     numero: '2.44',
     data: '23/10/2026',
     itens: [

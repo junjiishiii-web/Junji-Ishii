@@ -559,6 +559,24 @@ async def exportar_execucao_pdf(
     )
 
 
+import massa_reader
+
+
+@app.post("/api/massa/ler")
+async def ler_planilha_massa(file: UploadFile = File(...)):
+    """Lê uma planilha de massa em formato livre (blocos com título, ex.: "CEP NÃO CABEADO" com CEP/NÚMERO,
+    "CLIENTE MÓVEL APROVADO" com CPFs) e devolve os blocos encontrados. A escolha de qual massa vai para
+    qual CT é feita no navegador, comparando o título de cada bloco com a condição da massa do CT."""
+    conteudo = await file.read()
+    if len(conteudo) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Planilha maior que 15 MB.")
+    try:
+        return massa_reader.ler_blocos(conteudo, file.filename or "")
+    except Exception as e:
+        _log_erro("Erro ao ler planilha de massa", e)
+        raise HTTPException(status_code=400, detail=f"Não consegui ler a planilha de massa: {type(e).__name__}: {e}")
+
+
 _EXECUTOR = _HERE.parent / "executor"
 _EXECUTOR_ARQUIVOS = ("executor_avaya.py", "requirements.txt", "iniciar_executor.bat", "LEIA-ME.txt")
 

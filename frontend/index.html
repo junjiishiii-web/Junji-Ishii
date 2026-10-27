@@ -4,13 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
-  <link rel="stylesheet" href="style.css?v=2.44" />
-  <script src="versao.js?v=2.44"></script>
-  <script src="automacao.js?v=2.44"></script>
-  <script src="conferencia.js?v=2.44"></script>
-  <script src="execucao.js?v=2.44"></script>
-  <script src="execucao_auto.js?v=2.44"></script>
-  <script src="execucao_chat.js?v=2.44"></script>
+  <link rel="stylesheet" href="style.css?v=2.45" />
+  <script src="versao.js?v=2.45"></script>
+  <script src="automacao.js?v=2.45"></script>
+  <script src="conferencia.js?v=2.45"></script>
+  <script src="execucao.js?v=2.45"></script>
+  <script src="execucao_auto.js?v=2.45"></script>
+  <script src="execucao_chat.js?v=2.45"></script>
+  <script src="massa_import.js?v=2.45"></script>
   <script>
     try { if (localStorage.getItem('modeler_tem_trabalho') === '1') document.documentElement.classList.add('restaurando'); } catch (e) {}
   </script>
@@ -923,7 +924,12 @@
     const el = document.getElementById('massaPadrao');
     if (!el) return;
     const m = (avaliacoesQA.__massa_padrao || {}).massa || {};
-    el.innerHTML = `<strong>Massa padrão</strong> <span>usada nos CTs que não têm massa própria (CPF, contrato, CEP e número que a automação digita quando a URA pede)</span>
+    el.innerHTML = `<div class="massa-importar">
+        <label class="btn-export-pdf">📎 Importar massa de uma planilha (Excel / CSV)
+          <input type="file" accept=".xlsx,.xlsm,.csv,.txt" style="display:none;" onchange="massaImportar(this)" /></label>
+        <span>Qualquer formato: a ferramenta lê CPF, CNPJ, CEP, nº, contrato… e escolhe a massa de cada CT pela descrição (título do bloco ou colunas da linha) × a condição da massa do CT. Mostra uma prévia antes de aplicar.</span>
+      </div>
+      <strong>Massa padrão</strong> <span>usada nos CTs que não têm massa própria (CPF, contrato, CEP e número que a automação digita quando a URA pede)</span>
       <div class="massa-grade">${MASSA_CAMPOS.map(c => `
         <label><span>${c.rotulo}</span><input type="text" class="massa-input" inputmode="${c.texto ? 'text' : 'numeric'}" value="${escHtml(m[c.id] || '')}"
           oninput="salvarMassa('__massa_padrao', '${c.id}', this.value)" /></label>`).join('')}</div>`;
