@@ -88,6 +88,7 @@ const AUTO_CAMPOS = [
 
   // Evidência: Grafana (ROGUE e, provavelmente, ChatBOT)
   { id: 'grafana_url', grupo: 'evidencia', rotulo: 'URL do Grafana', dica: 'https://grafana…', tipos: ['ura_rogue', 'chatbot'], obrigatorio: ['ura_rogue'] },
+  { id: 'grafana_auto', grupo: 'evidencia', rotulo: 'Buscar o trace no Grafana automaticamente', tipo: 'select', opcoes: ['Não — colo o link do trace à mão (🔎 Conferir evidência)', 'Sim — o executor busca (login no Grafana na janela dele)'], tipos: ['chatbot'] },
   { id: 'grafana_painel', grupo: 'evidencia', rotulo: 'Link do painel / Explore usado na evidência', tipos: ['ura_rogue', 'chatbot'] },
   { id: 'grafana_fonte', grupo: 'evidencia', rotulo: 'Fonte de dados', tipo: 'select', opcoes: ['A confirmar', 'Jaeger (traces)', 'Loki', 'Elasticsearch / OpenSearch', 'Prometheus', 'Banco SQL', 'Outra'], tipos: ['ura_rogue', 'chatbot'] },
   { id: 'grafana_chave_busca', grupo: 'evidencia', rotulo: 'Campo que identifica a chamada / conversa', dica: 'ex.: ani, callId, sessionId', tipos: ['ura_rogue', 'chatbot'] },

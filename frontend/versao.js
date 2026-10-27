@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.54',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT: nova opção "Buscar o trace no Grafana automaticamente" (aba Automação). Por padrão fica em Não: o executor não pede login no Grafana e a conferência fica pela conversa.',
+      'ChatBOT: no 🔎 Conferir evidência dá para colar o link do trace no Grafana (aberto na sua aba já logada) e salvar; ele vira a evidência Grafana_<CT>_link.txt e aparece como "📈 Abrir o trace desta conversa no Grafana". Rodar o CT de novo remove o link antigo.',
+    ],
+  },
+  {
     numero: '2.53',
     data: '27/10/2026',
     itens: [

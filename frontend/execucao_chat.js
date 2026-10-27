@@ -112,7 +112,8 @@ async function _execAplicarChat(ctId, pedido, res, eventos) {
 }
 
 /* ─── Repetir um CT substitui o que a automação gravou antes ─── */
-const _PREFIXOS_EVID_AUTO = ['ChatBOT_', 'Log_URA_', 'Rogue_'];
+// (Grafana_ = link do trace colado à mão: é da conversa anterior, então sai junto quando o CT roda de novo.)
+const _PREFIXOS_EVID_AUTO = ['ChatBOT_', 'Log_URA_', 'Rogue_', 'Grafana_'];
 
 // Evidências geradas pela automação/conferência (os anexos feitos à mão pelo QA ficam).
 async function removerEvidenciasAuto(ctId) {
@@ -126,18 +127,57 @@ function semNotasAuto(comentario) {
 }
 
 /* ─── "🔎 Conferir evidência" no ChatBOT: mostra o print e a conversa da última execução ─── */
+const _RX_LINK_GRAFANA = /^Link do trace no Grafana: (\S+)/m;
+
+// Link do trace colado à mão pelo QA (Grafana aberto na aba dele): vira a evidência Grafana_<CT>_link.txt.
+function _chatHtmlLinkManual(ctId) {
+  return `<div class="bi-nota" id="chatLinkManual">📈 <strong>Link do trace no Grafana</strong> (cole o link do Explore desta conversa, aberto na sua aba do Grafana):
+    <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+      <input type="url" class="auto-input" id="chatLinkInput" style="flex:1;min-width:220px" placeholder="http://10.169.0.216:30300/explore?…" />
+      <button type="button" class="btn-export-pdf" onclick="chatSalvarLinkGrafana('${escHtml(ctId)}')">Salvar link</button>
+    </div><span id="chatLinkMsg"></span></div>`;
+}
+
+async function chatSalvarLinkGrafana(ctId) {
+  const inp = document.getElementById('chatLinkInput');
+  const msg = document.getElementById('chatLinkMsg');
+  const url = String(inp && inp.value || '').trim();
+  if (!/^https?:\/\/\S+$/.test(url)) { if (msg) msg.textContent = ' ⚠️ Cole um link começando com http:// ou https://'; return; }
+  const raiz = inp.closest('#chatLinkManual').parentElement;
+  const antigos = (evidenciasPorCT[ctId] || []).filter(e => /^Grafana_/.test(e.nome || ''));
+  for (const e of antigos) await removerEvidencia(ctId, e.id);
+  const texto = `Link do trace no Grafana: ${url}\nCT: ${ctId}\nInformado manualmente pelo QA em ${new Date().toLocaleString('pt-BR')}\n`;
+  await anexarEvidencias(ctId, { files: [new File([texto], `Grafana_${ctId}_link.txt`, { type: 'text/plain' })], value: '' });
+  chatMostrarEvidencia(raiz, ctId);
+}
+
+function _chatMostrarLink(el, url, manual) {
+  if (!el || !/^https?:\/\//.test(url)) return;
+  const p = document.createElement('p');
+  p.className = 'bi-nota';
+  p.innerHTML = `📈 <a href="${escHtml(url)}" target="_blank" rel="noopener">Abrir o trace desta conversa no Grafana ↗</a>${manual ? ' (link colado à mão)' : ''}`;
+  el.before(p);
+}
+
 function chatMostrarEvidencia(raiz, ctId) {
   const lista = evidenciasPorCT[ctId] || [];
   const png = [...lista].reverse().find(e => /^ChatBOT_.*\.png$/i.test(e.nome || ''));
   const txt = [...lista].reverse().find(e => /^ChatBOT_.*\.txt$/i.test(e.nome || ''));
+  const linkManual = [...lista].reverse().find(e => /^Grafana_.*\.txt$/i.test(e.nome || ''));
+  const mostrarManual = () => linkManual && linkManual.blob.text().then(t => {
+    const m = _RX_LINK_GRAFANA.exec(t);
+    if (m) _chatMostrarLink(document.getElementById('chatLinkManual'), m[1], true);
+  });
   if (!png && !txt) {
-    raiz.innerHTML = `<p class="conf-alerta">⚠️ Este CT ainda não tem evidência do ChatBOT. Use <strong>▶ Executar → 💬 Conversar e executar</strong> (com o executor aberto) para gerar a conversa e o print.</p>`;
+    raiz.innerHTML = `<p class="conf-alerta">⚠️ Este CT ainda não tem evidência do ChatBOT. Use <strong>▶ Executar → 💬 Conversar e executar</strong> (com o executor aberto) para gerar a conversa e o print.</p>${_chatHtmlLinkManual(ctId)}`;
+    mostrarManual();
     return;
   }
   const st = avaliacoesQA[ctId] || {};
   raiz.innerHTML = `
     <p class="bi-nota">Status: <strong>${escHtml(_STATUS_ROTULO[st.status] || 'Pendente')}</strong>${st.comments ? ` · ${escHtml(st.comments)}` : ''}</p>
     ${png ? `<div class="chat-evid-print"><img id="chatEvidImg" alt="Print da conversa com o bot" /></div>` : ''}
+    ${_chatHtmlLinkManual(ctId)}
     ${txt ? `<details class="conf-detalhe" open><summary>Conversa e conferência (${escHtml(txt.nome)})</summary><pre class="exec-g-log" id="chatEvidTxt">carregando…</pre></details>` : ''}`;
   if (png) {
     const url = URL.createObjectURL(png.blob);
@@ -145,16 +185,12 @@ function chatMostrarEvidencia(raiz, ctId) {
     img.onload = () => setTimeout(() => URL.revokeObjectURL(url), 1000);
     img.src = url;
   }
+  // Link do trace: o colado à mão vale; senão, o que a execução automática gravou no .txt.
+  mostrarManual();
   if (txt) txt.blob.text().then(t => {
     const el = document.getElementById('chatEvidTxt');
     if (el) el.textContent = t;
-    // Link do trace (gravado no .txt pela execução automática): abre o Grafana na jornada desta conversa.
-    const m = /^Link do trace no Grafana: (\S+)/m.exec(t);
-    if (m && /^https?:\/\//.test(m[1]) && el) {
-      const p = document.createElement('p');
-      p.className = 'bi-nota';
-      p.innerHTML = `📈 <a href="${escHtml(m[1])}" target="_blank" rel="noopener">Abrir o trace desta conversa no Grafana ↗</a>`;
-      el.closest('details').before(p);
-    }
+    const m = _RX_LINK_GRAFANA.exec(t);
+    if (m && !linkManual) _chatMostrarLink(document.getElementById('chatLinkManual'), m[1], false);
   });
 }
