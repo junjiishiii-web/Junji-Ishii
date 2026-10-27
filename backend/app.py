@@ -581,21 +581,39 @@ _EXECUTOR = _HERE.parent / "executor"
 _EXECUTOR_ARQUIVOS = ("executor_avaya.py", "requirements.txt", "iniciar_executor.bat", "LEIA-ME.txt")
 
 
+def _versao_executor():
+    """Versão do executor que está no servidor (lida do próprio executor_avaya.py: VERSAO = "x.y")."""
+    try:
+        texto = (_EXECUTOR / "executor_avaya.py").read_text(encoding="utf-8")
+        m = re.search(r'^VERSAO\s*=\s*"([^"]+)"', texto, re.MULTILINE)
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
+@app.get("/api/executor/versao")
+def versao_executor():
+    return {"versao": _versao_executor()}
+
+
 @app.get("/api/executor/download")
 def baixar_executor():
-    """Pacote do executor local (liga pelo Avaya one-X) para a aba Automação."""
+    """Pacote do executor local (URA pelo Avaya one-X e ChatBOT pelo WhatsApp Web) para a aba Automação.
+    O nome do arquivo e da pasta leva a versão (ModelerExecutor_v1.6.zip)."""
+    versao = _versao_executor()
+    pasta = f"ModelerExecutor_v{versao}" if versao else "ModelerExecutor"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for nome in _EXECUTOR_ARQUIVOS:
             caminho = _EXECUTOR / nome
             if not caminho.exists():
                 raise HTTPException(status_code=500, detail=f"Arquivo do executor ausente no servidor: {nome}")
-            z.write(caminho, arcname=f"ModelerExecutor/{nome}")
+            z.write(caminho, arcname=f"{pasta}/{nome}")
     buf.seek(0)
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="ModelerExecutor.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{pasta}.zip"'},
     )
 
 

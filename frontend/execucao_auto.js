@@ -262,18 +262,40 @@ async function renderizarExecutorAuto() {
       ? `<p class="bi-nota">Para a ferramenta <strong>conversar sozinha com o bot</strong> (começa com “SIM”, clica nos botões e manda os dados da massa), rode o executor nesta máquina. Ele abre uma <strong>janela própria do Chrome com o WhatsApp Web</strong>: na 1ª vez, leia o QR code com o celular (WhatsApp › Aparelhos conectados › Conectar aparelho). A conversa e um print viram a evidência de cada CT.</p>`
       : `<p class="bi-nota">Para a ferramenta <strong>ligar sozinha</strong> pelo Avaya one-X e digitar os passos de cada CT, rode o executor nesta máquina (na VPN, com o one-X aberto e logado). Ele não usa o mouse nem o teclado: dá para continuar trabalhando.</p>`}
     <div class="exec-g-ligar">
-      <div><div class="exec-g-rotulo">Status</div><div id="autoExecutorStatus" class="exec-g-dica">verificando…</div></div>
-      <a class="btn-export-pdf exec-g-btn-ligar" href="${API}/api/executor/download" download>⬇️ Baixar executor (.zip)</a>
+      <div>
+        <div class="exec-g-rotulo">Status</div><div id="autoExecutorStatus" class="exec-g-dica">verificando…</div>
+        <div class="exec-g-dica">Versão disponível para download: <strong id="autoExecutorVersaoServidor">…</strong></div>
+      </div>
+      <a class="btn-export-pdf exec-g-btn-ligar" id="btnBaixarExecutor" href="${API}/api/executor/download" download>⬇️ Baixar executor (.zip)</a>
     </div>
     <ol class="exec-g-dica">
       <li>Baixe o .zip, <strong>extraia</strong> (botão direito › Extrair tudo…) numa pasta (ex.: Documentos\\ModelerExecutor) e dê dois cliques no <code>iniciar_executor.bat</code> <strong>da pasta extraída</strong> — não de dentro do .zip. Na primeira vez ele prepara tudo (precisa do Python instalado).</li>
       <li>Deixe a janela preta aberta. Volte aqui e use <strong>▶ Iniciar execução do plano → 🤖 Automático</strong>.</li>
       <li>Preencha a massa (CPF, CEP, contrato…) na aba <strong>Massa de Testes</strong> para os passos que pedem dados.</li>
     </ol>`;
+  // Versão que o servidor entrega no download (o nome do .zip leva a versão).
+  let vServidor = '';
+  try { vServidor = ((await (await fetch(`${API}/api/executor/versao`, { credentials: 'same-origin' })).json()) || {}).versao || ''; } catch (e) {}
+  const vs = document.getElementById('autoExecutorVersaoServidor');
+  if (vs) vs.textContent = vServidor ? `v${vServidor}` : '—';
+  const b = document.getElementById('btnBaixarExecutor');
+  if (b && vServidor) b.textContent = `⬇️ Baixar executor v${vServidor} (.zip)`;
+
   const st = await execExecutorStatus();
   const s = document.getElementById('autoExecutorStatus');
+  const desatualizado = st && vServidor && _execVersaoMenor(st.versao, vServidor);
   if (s) s.innerHTML = _execExecutorAntigo(st) ? _MSG_EXECUTOR_ANTIGO : !st ? '⚪ Executor não está rodando nesta máquina.'
-    : autoConfig.tipo === 'chatbot' ? `🟢 Executor v${escHtml(st.versao)} rodando · ChatBOT pelo WhatsApp Web (janela própria do Chrome)`
-    : (st.onex_aberto ? `🟢 Executor v${escHtml(st.versao)} rodando · Avaya one-X aberto` : `🟡 Executor v${escHtml(st.versao)} rodando · abra o Avaya one-X`);
+    : (autoConfig.tipo === 'chatbot' ? `🟢 Executor v${escHtml(st.versao)} rodando · ChatBOT pelo WhatsApp Web (janela própria do Chrome)`
+      : (st.onex_aberto ? `🟢 Executor v${escHtml(st.versao)} rodando · Avaya one-X aberto` : `🟡 Executor v${escHtml(st.versao)} rodando · abra o Avaya one-X`))
+      + (desatualizado ? `<br>⚠️ Há uma versão mais nova (v${escHtml(vServidor)}): feche o executor, baixe de novo e abra o novo <code>iniciar_executor.bat</code>.` : '');
+}
+
+// "1.6" < "1.10"? compara número a número.
+function _execVersaoMenor(a, b) {
+  const pa = String(a || '0').split('.').map(Number), pb = String(b || '0').split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) < (pb[i] || 0);
+  }
+  return false;
 }
 
