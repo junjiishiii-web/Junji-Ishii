@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.56',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.14 (baixe de novo): CT em que o bot NÃO deve responder (@{semMensagem}) agora espera o mesmo tempo da resposta do bot (3 min por padrão, antes eram 40 s) e confere de novo no fim; se o bot responder, mesmo atrasado, o CT fica Não OK (é bug).',
+      'ChatBOT: a resposta do bot é detectada pelos balões novos (o WhatsApp Web só mantém as últimas mensagens na tela, o que fazia a contagem falhar); a conversa e o print ficam só com as mensagens deste CT.',
+    ],
+  },
+  {
     numero: '2.55',
     data: '27/10/2026',
     itens: [

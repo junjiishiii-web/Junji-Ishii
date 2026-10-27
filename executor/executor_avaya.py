@@ -30,7 +30,7 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.13"
+VERSAO = "1.14"
 
 # A janela do executor (console do Windows) não mostra emoji: troca por "?" em vez de quebrar a execução
 # (o CT envia 😀 nas entradas inválidas e o bot manda emojis o tempo todo).
@@ -501,19 +501,29 @@ class WhatsAppWeb:
             time.sleep(0.4)
         return self.page.evaluate("""() => {
           const saida = [];
-          document.querySelectorAll('div.message-in, div.message-out').forEach(m => {
+          const todas = [...document.querySelectorAll('div.message-in, div.message-out')];
+          let ultimaAntes = -1;
+          todas.forEach((m, i) => { if (m.dataset.maAntesCt !== undefined) ultimaAntes = i; });
+          todas.forEach((m, i) => {
             const pre = m.querySelector('[data-pre-plain-text]');
             const textos = [...m.querySelectorAll('span.selectable-text, span[dir="ltr"]')].map(s => s.innerText).filter(Boolean);
             const botoes = [...m.querySelectorAll('div[role="button"], button')].map(b => (b.innerText || '').trim()).filter(Boolean);
-            saida.push({ de: m.classList.contains('message-in') ? 'bot' : 'qa',
+            saida.push({ de: m.classList.contains('message-in') ? 'bot' : 'qa', antes_do_ct: i <= ultimaAntes,
                          hora: pre ? pre.getAttribute('data-pre-plain-text') : '',
                          texto: [...new Set(textos)].join('\\n').trim(), botoes: [...new Set(botoes)] });
           });
           return saida;
         }""")
 
+    def marcar_vistas(self, marca="maVisto"):
+        """Marca os balões que já estão na conversa (o que chegar depois fica sem a marca)."""
+        self.page.evaluate("""(marca) => document.querySelectorAll('div.message-in, div.message-out')
+                                .forEach(m => { m.dataset[marca] = '1'; })""", marca)
+
     def qtd_do_bot(self):
-        return self.page.locator("div.message-in").count()
+        """Mensagens do bot que chegaram depois do último marcar_vistas()."""
+        return self.page.evaluate("""() => [...document.querySelectorAll('div.message-in')]
+                                      .filter(m => m.dataset.maVisto === undefined).length""")
 
     def enviar_texto(self, texto, alternativo=""):
         """Digita e envia. Se o texto não entrar na caixa (ex.: emoji que o WhatsApp Web recusa) e houver
@@ -595,6 +605,7 @@ class WhatsAppWeb:
       const main = document.querySelector('#main');
       if (!main) return -1;
       const msgs = [...document.querySelectorAll('div.message-in, div.message-out')];
+      if (inicio < 0) { inicio = 0; msgs.forEach((m, i) => { if (m.dataset.maAntesCt !== undefined) inicio = i + 1; }); }
       if (inicio > 0 && msgs[inicio] && msgs[inicio - 1]) {
         // linha do 1º balão deste CT (filha do mesmo pai que as linhas anteriores) e tudo antes dela some
         let r = msgs[inicio];
@@ -620,7 +631,7 @@ class WhatsAppWeb:
       if (l) { delete l.dataset.maLista; l.scrollTop = l.scrollHeight; }
     }"""
 
-    def print_png(self, inicio=0):
+    def print_png(self, inicio=-1):
         """Print da conversa deste CT com o bot, inteira e sem corte: o painel #main (cabeçalho com o nome do
         bot, mensagens e botões), sem a lista de conversas e sem as conversas dos CTs anteriores. A janela é
         esticada na altura só durante o print para todas as mensagens caberem. Sem o painel, tira da janela."""
@@ -630,12 +641,12 @@ class WhatsAppWeb:
             painel = self.page.locator("#main")
             if painel.count():
                 tamanho = self.page.viewport_size
-                falta = self.page.evaluate(self._JS_PREPARA_PRINT, int(inicio or 0))
+                falta = self.page.evaluate(self._JS_PREPARA_PRINT, int(inicio))
                 if tamanho and falta and falta > 0:
                     self.page.set_viewport_size({"width": tamanho["width"],
                                                  "height": min(tamanho["height"] + falta + 40, 15000)})
                     time.sleep(1.0)
-                    self.page.evaluate(self._JS_PREPARA_PRINT, int(inicio or 0))   # mensagens antigas que carregaram
+                    self.page.evaluate(self._JS_PREPARA_PRINT, int(inicio))   # mensagens antigas que carregaram
                     self.page.evaluate("() => { const l = document.querySelector('[data-ma-lista]'); if (l) l.scrollTop = 0; }")
                     time.sleep(0.4)
                 return painel.first.screenshot(scale="css")
@@ -784,9 +795,10 @@ class Execucao:
                     raise RuntimeError("O bot não encerrou a conversa anterior; não comecei este CT para não misturar as conversas.")
                 self.ev("conversa anterior encerrada")
             self.estado = "em_chamada"
-            inicio_conversa = len(wa.mensagens())
+            wa.marcar_vistas("maAntesCt")   # o que já está na tela é de CTs anteriores
             espera = float(p.get("espera_resposta", 180))   # o bot de HML às vezes leva mais de 1 min
-            espera_calado = float(p.get("espera_sem_resposta", 40))
+            # "O bot não deve responder" só dá para afirmar depois de esperar o mesmo tempo que ele leva para responder.
+            espera_calado = float(p.get("espera_sem_resposta") or espera)
             passos_exec = []
             terminou_calado = False
             for passo in p.get("passos") or []:
@@ -801,11 +813,13 @@ class Execucao:
                     raise RuntimeError(f"{alvo}: o bot pede {passo.get('campo') or 'um dado'} e a massa está vazia — preencha na aba Massa de Testes.")
                 if tipo == "auto":
                     # Passo automático do bot (API, switch): só espera ele seguir.
-                    novas = self._esperar_bot(wa, wa.qtd_do_bot(), espera_calado if sem_resposta else 8, quieto=3)
+                    wa.marcar_vistas()
+                    novas = self._esperar_bot(wa, 0, espera_calado if sem_resposta else 8, quieto=3)
                     passos_exec.append({"n": passo.get("n"), "novas": novas})
                     terminou_calado = sem_resposta and not novas
                     continue
-                antes = wa.qtd_do_bot()
+                wa.marcar_vistas()
+                antes = 0
                 if tipo == "silencio":
                     limite_sil = espera_calado if sem_resposta else float(p.get("espera_silencio", 480))
                     self.ev(f"{alvo}: fico em silêncio e espero o bot reagir (até {int(limite_sil // 60)} min {int(limite_sil % 60)} s)")
@@ -827,7 +841,9 @@ class Execucao:
                     novas = self._esperar_bot(wa, antes, espera_calado)
                     passos_exec.append({"n": passo.get("n"), "novas": novas})
                     terminou_calado = not novas
-                    self.ev(f"{alvo}: o bot não respondeu, como esperado" if not novas
+                    if not novas:
+                        wa.marcar_vistas()   # para conferir de novo no fim do CT (resposta atrasada)
+                    self.ev(f"{alvo}: o bot não respondeu em {int(espera_calado)} s, como esperado" if not novas
                             else f"{alvo}: o bot respondeu {novas} mensagem(ns), mas o esperado era não responder")
                     continue
                 novas = self._esperar_bot(wa, antes, espera)
@@ -840,6 +856,14 @@ class Execucao:
 
             # Fim do CT: espera o bot encerrar (despedida) para o próximo CT começar numa conversa nova.
             if terminou_calado:
+                self._dormir(p.get("espera_final_chat", 3))
+                atrasadas = wa.qtd_do_bot()
+                if atrasadas:
+                    # Respondeu atrasado: também é resposta (o esperado era ficar calado).
+                    passos_exec[-1]["novas"] = atrasadas
+                    terminou_calado = False
+                    self.ev(f"o bot respondeu {atrasadas} mensagem(ns) atrasada(s), mas o esperado era não responder")
+            if terminou_calado:
                 self.ev("o CT terminou com o bot calado (esperado): conversa encerrada sem despedida")
                 _WHATSAPP["encerrada_sem_msg"] = True
             elif wa.conversa_encerrada(fim_textos):
@@ -850,8 +874,8 @@ class Execucao:
                         else "o bot NÃO encerrou a conversa no tempo limite")
             self._dormir(p.get("espera_final_chat", 3))
             todas = wa.mensagens()
-            conversa = todas[max(0, inicio_conversa - 1):]
-            png = wa.print_png(inicio_conversa)
+            conversa = [m for m in todas if not m.pop("antes_do_ct", False)]
+            png = wa.print_png()
             import base64
             self.resultado = {"tipo": "chatbot", "conversa": conversa, "passos_exec": passos_exec,
                               "print_png_b64": base64.b64encode(png).decode("ascii") if png else ""}
