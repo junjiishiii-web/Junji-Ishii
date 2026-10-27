@@ -30,7 +30,15 @@ import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.10"
+VERSAO = "1.11"
+
+# A janela do executor (console do Windows) não mostra emoji: troca por "?" em vez de quebrar a execução
+# (o CT envia 😀 nas entradas inválidas e o bot manda emojis o tempo todo).
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(errors="replace")
+    except Exception:
+        pass
 PORTA = int(os.environ.get("MODELER_EXECUTOR_PORTA", "47123"))
 
 # Segurança: o executor liga de verdade, então só obedece ao Modeler Assistant (qualquer outra
@@ -707,7 +715,10 @@ class Execucao:
             limite_fim = float(p.get("espera_encerramento", 600))
 
             # Uma conversa por CT: se a anterior ainda está aberta, espera o bot encerrar antes do "SIM".
-            if not wa.conversa_encerrada(fim_textos):
+            # (Se o CT anterior terminou com o bot calado de propósito — "@{semMensagem}" —, já está encerrada.)
+            if _WHATSAPP.get("encerrada_sem_msg"):
+                _WHATSAPP["encerrada_sem_msg"] = False
+            elif not wa.conversa_encerrada(fim_textos):
                 self.ev(f"a conversa anterior ainda está aberta; aguardando o bot encerrar (até {int(limite_fim // 60)} min)")
                 if not self._esperar_encerramento(wa, fim_textos, limite_fim):
                     raise RuntimeError("O bot não encerrou a conversa anterior; não comecei este CT para não misturar as conversas.")
@@ -715,24 +726,32 @@ class Execucao:
             self.estado = "em_chamada"
             inicio_conversa = len(wa.mensagens())
             espera = float(p.get("espera_resposta", 180))   # o bot de HML às vezes leva mais de 1 min
+            espera_calado = float(p.get("espera_sem_resposta", 40))
+            passos_exec = []
+            terminou_calado = False
             for passo in p.get("passos") or []:
                 if self.parar.is_set():
                     raise _Parado()
                 tipo = passo.get("tipo") or ("texto" if passo.get("texto") else ("botao" if passo.get("opcoes") else "auto"))
                 texto = str(passo.get("texto") or "").strip()
                 opcoes = [o for o in (passo.get("opcoes") or []) if o]
+                sem_resposta = bool(passo.get("sem_resposta"))
                 alvo = f"step {passo.get('n')} ({passo.get('estado') or '—'})"
                 if tipo == "falta_massa":
                     raise RuntimeError(f"{alvo}: o bot pede {passo.get('campo') or 'um dado'} e a massa está vazia — preencha na aba Massa de Testes.")
                 if tipo == "auto":
                     # Passo automático do bot (API, switch): só espera ele seguir.
-                    self._esperar_bot(wa, wa.qtd_do_bot(), 8, quieto=3)
+                    novas = self._esperar_bot(wa, wa.qtd_do_bot(), espera_calado if sem_resposta else 8, quieto=3)
+                    passos_exec.append({"n": passo.get("n"), "novas": novas})
+                    terminou_calado = sem_resposta and not novas
                     continue
                 antes = wa.qtd_do_bot()
                 if tipo == "silencio":
-                    limite_sil = float(p.get("espera_silencio", 480))
-                    self.ev(f"{alvo}: fico em silêncio e espero o bot reagir (até {int(limite_sil // 60)} min)")
+                    limite_sil = espera_calado if sem_resposta else float(p.get("espera_silencio", 480))
+                    self.ev(f"{alvo}: fico em silêncio e espero o bot reagir (até {int(limite_sil // 60)} min {int(limite_sil % 60)} s)")
                     novas = self._esperar_bot(wa, antes, limite_sil)
+                    passos_exec.append({"n": passo.get("n"), "novas": novas})
+                    terminou_calado = sem_resposta and not novas
                     self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns) ao silêncio" if novas else f"{alvo}: o bot não reagiu ao silêncio")
                     continue
                 if opcoes and wa.clicar_botao(opcoes + ([texto] if texto else [])):
@@ -740,15 +759,29 @@ class Execucao:
                 else:
                     enviar = texto or (opcoes[0] if opcoes else "")
                     wa.enviar_texto(enviar)
-                    self.ev(f"{alvo}: enviei “{enviar}”" + (" (botão não encontrado na tela)" if tipo == "botao" else ""))
+                    self.ev(f"{alvo}: enviei “{enviar}”" + (" (entrada inválida de propósito)" if tipo == "invalido" else "")
+                            + (" (botão não encontrado na tela)" if tipo == "botao" else ""))
+                if sem_resposta:
+                    # O esperado é o bot NÃO responder ("@{semMensagem}"): espera um pouco e confere que ficou calado.
+                    novas = self._esperar_bot(wa, antes, espera_calado)
+                    passos_exec.append({"n": passo.get("n"), "novas": novas})
+                    terminou_calado = not novas
+                    self.ev(f"{alvo}: o bot não respondeu, como esperado" if not novas
+                            else f"{alvo}: o bot respondeu {novas} mensagem(ns), mas o esperado era não responder")
+                    continue
                 novas = self._esperar_bot(wa, antes, espera)
+                passos_exec.append({"n": passo.get("n"), "novas": novas})
+                terminou_calado = False
                 if not novas:
                     # Não manda o próximo passo sem resposta: atropelaria a conversa (o bot responderia ao passo errado).
                     raise RuntimeError(f"{alvo}: o bot não respondeu em {int(espera // 60)} min {int(espera % 60)} s — CT interrompido para não misturar a conversa.")
                 self.ev(f"{alvo}: bot respondeu {novas} mensagem(ns)")
 
             # Fim do CT: espera o bot encerrar (despedida) para o próximo CT começar numa conversa nova.
-            if wa.conversa_encerrada(fim_textos):
+            if terminou_calado:
+                self.ev("o CT terminou com o bot calado (esperado): conversa encerrada sem despedida")
+                _WHATSAPP["encerrada_sem_msg"] = True
+            elif wa.conversa_encerrada(fim_textos):
                 self.ev("o bot encerrou a conversa")
             else:
                 self.ev(f"aguardando o bot encerrar a conversa (até {int(limite_fim // 60)} min)")
@@ -759,7 +792,7 @@ class Execucao:
             conversa = todas[max(0, inicio_conversa - 1):]
             png = wa.print_png()
             import base64
-            self.resultado = {"tipo": "chatbot", "conversa": conversa,
+            self.resultado = {"tipo": "chatbot", "conversa": conversa, "passos_exec": passos_exec,
                               "print_png_b64": base64.b64encode(png).decode("ascii") if png else ""}
             self.ev(f"conversa registrada ({len(conversa)} mensagens)")
 

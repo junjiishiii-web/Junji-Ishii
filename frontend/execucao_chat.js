@@ -19,10 +19,17 @@ function _chatTrecho(texto) {
   return _chatPalavras(limpo).filter(w => w.length > 2).slice(0, 6);
 }
 
-function _chatComparar(pedido, conversa) {
+function _chatComparar(pedido, conversa, passosExec) {
   const textoBot = conversa.filter(m => m.de === 'bot').map(m => `${m.texto} ${(m.botoes || []).join(' ')}`).join(' ');
   const palavrasBot = new Set(_chatPalavras(textoBot));
-  const itens = pedido.passos.filter(p => p.esperado).map(p => {
+  const exec = {};
+  (passosExec || []).forEach(x => { exec[x.n] = x; });
+  const itens = pedido.passos.filter(p => p.esperado || p.sem_resposta).map(p => {
+    if (p.sem_resposta) {
+      // Esperado: o bot NÃO responde ("@{semMensagem}"). Conta como OK se ele ficou calado nesse passo.
+      const x = exec[p.n];
+      return { n: p.n, estado: p.estado, esperado: '(o bot não deve responder)', achou: !!x && !x.novas };
+    }
     const trecho = _chatTrecho(p.esperado);
     const achadas = trecho.filter(w => palavrasBot.has(w)).length;
     return { n: p.n, estado: p.estado, esperado: p.esperado, achou: trecho.length ? achadas / trecho.length >= 0.67 : true };
@@ -57,7 +64,7 @@ function linkGrafanaTrace(grafana, fonteUid, traceId) {
 
 async function _execAplicarChat(ctId, pedido, res, eventos) {
   const conversa = res.conversa || [];
-  const r = _chatComparar(pedido, conversa);
+  const r = _chatComparar(pedido, conversa, res.passos_exec);
   const rs = _chatCompararSps(pedido, res.trace);
   if (rs && rs.sps.length) {
     // Com o trace, os SPs também decidem: faltou SP = Não OK.

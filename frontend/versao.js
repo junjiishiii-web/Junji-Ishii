@@ -3,6 +3,15 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.52',
+    data: '27/10/2026',
+    itens: [
+      'ChatBOT — executor 1.11 (baixe de novo): CTs de entrada inválida (ex.: "[No input] Mensagem em formato não suportado") começam com um emoji (😀) em vez de "SIM"; "intenção não identificada" começa com um texto sem sentido. Os demais CTs continuam começando com "SIM".',
+      'ChatBOT: quando o esperado do passo é o bot NÃO responder (@{semMensagem}), o executor espera ~40 s e confere que ele ficou calado (OK) em vez de interromper o CT; o próximo CT começa sem esperar despedida. A tela do CT mostra "🔇 o bot NÃO deve responder".',
+      'Executor: a janela do executor não quebra mais ao mostrar emojis.',
+    ],
+  },
+  {
     numero: '2.51',
     data: '27/10/2026',
     itens: [

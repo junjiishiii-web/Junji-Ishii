@@ -7,7 +7,7 @@ const EXECUTOR_URL = 'http://127.0.0.1:47123';
 const GRAFANA_DS_UID_ROGUE = 'PC9A941E8F2E49454';   // fonte Jaeger do Grafana do ROGUE (do link do Explore)
 const GRAFANA_CHATBOT = 'http://10.169.0.216:30300';   // Grafana das evidências do ChatBOT (Conversation Finder; exige login)
 let execAuto = { ativo: false, parar: false };
-const EXECUTOR_VERSAO_MIN = '1.10';   // versão do executor_avaya.py que este site espera
+const EXECUTOR_VERSAO_MIN = '1.11';   // versão do executor_avaya.py que este site espera
 function _execExecutorAntigo(st) { return !!st && _execVersaoMenor(st.versao || '0', EXECUTOR_VERSAO_MIN); }
 const _MSG_EXECUTOR_ANTIGO = '⚠️ O executor desta máquina é de uma versão antiga. Feche a janela dele, baixe de novo em <strong>🤖 Automação → Executor automático</strong> e abra o novo <code>iniciar_executor.bat</code>.';
 
@@ -69,43 +69,60 @@ const _RX_PARECE_REGEX = /[\\^$*+?{}|]|\[0-9|\[a-z]-/i;
 
 // Conversa do ChatBOT: começa com a mensagem inicial ("SIM"); em cada passo, o botão/texto que a SPEC
 // aceita naquela transição (coluna "Dígito / Valor") ou, se o bot pediu um dado, o valor da massa.
+// Última(s) condição(ões) do caminho do passo: é ela que diz o que o QA faz naquele ponto.
+// "Navegar (🏁 Início > API … SIM > ⬇️ Não é elegível > 💣 [No input] Mensagem em formato não suportado)" -> "[No input] …"
+function _execCondicaoFinal(acao) {
+  const m = /\((.*)\)\s*$/.exec(String(acao || ''));
+  const partes = (m ? m[1] : String(acao || '')).split(/\s+>\s+/);
+  return partes.slice(-2).join(' > ');
+}
+
 function _execPassosChat(roteiro, massa, inicial) {
   const passos = [];
-  let usouInicial = false;
+  let iniciou = false;   // a conversa já foi aberta por uma mensagem do QA
+  const abrir = () => passos.push({ n: 1, estado: '_Start_', tipo: 'texto', texto: inicial, opcoes: [], esperado: '' });
   roteiro.passos.forEach((p, i) => {
     if (i === 0) return;                                 // _Start_
     if (/^encerrar/i.test(p.acao || '') || p.estado === '-') return;
     const anterior = roteiro.passos[i - 1] || {};
-    const esperado = p.prompt_texto && p.prompt_texto !== '—' ? p.prompt_texto : '';
-    const base = { n: p.n, estado: p.estado, esperado };
-    // Transição de silêncio ("💤 Ficou em silêncio"): não manda nada e espera o bot reagir.
-    if (/sil[eê]ncio|no ?input|n[aã]o respondeu/i.test(p.acao || '')) {
-      passos.push({ ...base, tipo: 'silencio', texto: '', opcoes: [] });
-      return;
+    const textoPrompt = p.prompt_texto && p.prompt_texto !== '—' ? p.prompt_texto : '';
+    // "@{semMensagem}" / "Sem mensagem": o esperado é o bot NÃO responder.
+    const semResposta = /sem\s*mensagem|semMensagem/i.test(textoPrompt);
+    const base = { n: p.n, estado: p.estado, esperado: semResposta ? '' : textoPrompt, sem_resposta: semResposta };
+    const cond = _execCondicaoFinal(p.acao);
+    let acao;
+    if (/no ?input|formato n[aã]o suportado|figurinha|[aá]udio, /i.test(cond)) {
+      acao = { tipo: 'invalido', texto: '😀', opcoes: [] };            // entrada inválida: um emoji (não é "Sim")
+    } else if (/inten[cç][aã]o n[aã]o identificada|outras inten[cç]|\bnone\b/i.test(cond)) {
+      acao = { tipo: 'invalido', texto: 'xqzw', opcoes: [] };          // texto que o bot não entende
+    } else if (/sil[eê]ncio/i.test(cond)) {
+      acao = { tipo: 'silencio', texto: '', opcoes: [] };
+    } else {
+      const entradas = p.entradas || [];
+      const opcoes = entradas.filter(e => !_RX_PARECE_REGEX.test(e));
+      const pedeDado = !opcoes.length || entradas.some(e => _RX_PARECE_REGEX.test(e));
+      const campo = _execCampoMassaDoEstado(anterior.estado);
+      if (pedeDado && campo) {
+        // O bot pede um dado (CPF, CNPJ, nome…): manda a massa; sem massa, o CT para com aviso.
+        acao = massa[campo] ? { tipo: 'texto', texto: massa[campo], opcoes: [] } : { tipo: 'falta_massa', campo, texto: '', opcoes: [] };
+      } else if (!iniciou && opcoes.some(o => /^sim\b/i.test(o))) {
+        acao = { tipo: 'texto', texto: inicial, opcoes: [] };          // o "SIM" que inicia a jornada
+      } else if (opcoes.length) {
+        acao = { tipo: 'botao', texto: opcoes[0], opcoes };           // clica no botão; o texto é a reserva
+      } else {
+        acao = { tipo: 'auto', texto: '', opcoes: [] };               // o bot segue sozinho (API, switch)
+      }
     }
-    const entradas = p.entradas || [];
-    const opcoes = entradas.filter(e => !_RX_PARECE_REGEX.test(e));
-    const pedeDado = !opcoes.length || entradas.some(e => _RX_PARECE_REGEX.test(e));
-    const campo = _execCampoMassaDoEstado(anterior.estado);
-    if (pedeDado && campo) {
-      // O bot pede um dado (CPF, CNPJ, nome…): manda a massa; sem massa, o CT para com aviso.
-      passos.push(massa[campo]
-        ? { ...base, tipo: 'texto', texto: massa[campo], opcoes: [] }
-        : { ...base, tipo: 'falta_massa', campo, texto: '', opcoes: [] });
-      return;
+    // Abertura da conversa: se a 1ª ação do CT não é ela mesma uma mensagem do QA (silêncio, passo
+    // automático, falta de massa), a conversa abre com o "SIM". Se for (ex.: entrada inválida), abre com ela.
+    if (!iniciou) {
+      if (!['texto', 'botao', 'invalido'].includes(acao.tipo)) abrir();
+      if (acao.tipo === 'botao') { abrir(); }
+      iniciou = true;
     }
-    if (!usouInicial && opcoes.some(o => /^sim\b/i.test(o))) {
-      usouInicial = true;
-      passos.push({ ...base, tipo: 'texto', texto: inicial, opcoes: [] });   // o "SIM" que inicia a jornada
-      return;
-    }
-    if (opcoes.length) {
-      passos.push({ ...base, tipo: 'botao', texto: opcoes[0], opcoes });     // clica no botão; o texto é a reserva
-      return;
-    }
-    passos.push({ ...base, tipo: 'auto', texto: '', opcoes: [] });           // o bot segue sozinho (API, switch)
+    passos.push({ ...base, ...acao });
   });
-  if (!usouInicial) passos.unshift({ n: 1, estado: '_Start_', tipo: 'texto', texto: inicial, opcoes: [], esperado: '' });
+  if (!iniciou) abrir();
   return passos;
 }
 
