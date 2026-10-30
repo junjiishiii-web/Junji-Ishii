@@ -47,6 +47,8 @@ def _escrever_capa(wb, plano, eep_model, spec_model, ivr_code):
         ("Chaves de Elegibilidade (EEP):", ", ".join(eep_model.get("chaves", [])) or "Nenhuma chave identificada"),
         ("Itens p/ Revisão Manual:", str(len(plano["revisao_necessaria"]))),
     ]
+    if plano.get("filtro_descricao"):
+        linhas.insert(5, ("Exportação filtrada:", plano["filtro_descricao"]))
     for i, (rotulo, valor) in enumerate(linhas):
         row = i + 6
         ws.cell(row=row, column=2, value=rotulo).font = Font(name=FONT_NAME, size=10, bold=True)

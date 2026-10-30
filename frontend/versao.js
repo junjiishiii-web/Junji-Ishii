@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.64',
+    data: '30/10/2026',
+    itens: [
+      'Exportar com o filtro de SPEC: com um filtro ativo (ex.: CRN), o xlsx, o PDF da execução e o ZIP de evidências saem SÓ com os CTs filtrados. No xlsx, Legenda, Marcações de BI e SPs de regressão acompanham o recorte e a Capa informa "Exportação filtrada: SPEC CRN — 17 de 53 CTs"; o nome dos arquivos ganha o sufixo da SPEC e os botões mostram "(filtro: CRN)".',
+    ],
+  },
+  {
     numero: '2.63',
     data: '30/10/2026',
     itens: [

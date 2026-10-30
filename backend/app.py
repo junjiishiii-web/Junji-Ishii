@@ -28,6 +28,7 @@ from parser import (
     dados_para_frontend,
     exportar_planilha_para_bytes,
     dados_do_navegador_para_exportacao,
+    filtrar_dados_por_spec,
 )
 
 _LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "ModelerAssistant", "logs")
@@ -418,10 +419,17 @@ async def exportar_planilha_testes_dados(request: Request):
     try:
         corpo = await request.json()
         assert isinstance(corpo, dict)
+        filtro_specs = [str(x) for x in (corpo.get("filtro_specs") or []) if x]
+        if filtro_specs:
+            corpo = filtrar_dados_por_spec(corpo, filtro_specs)
+            if not corpo.get("casos_teste"):
+                raise HTTPException(status_code=400, detail="Nenhum CT passa pela(s) SPEC(s) do filtro escolhido.")
         casos = corpo.get("casos_teste")
         assert isinstance(casos, list) and 0 < len(casos) <= MAX_CTS_XLSX and all(isinstance(c, dict) for c in casos)
         dados = dados_do_navegador_para_exportacao(corpo)
         xlsx_bytes, _relatorio = exportar_planilha_para_bytes(dados)
+    except HTTPException:
+        raise
     except (AssertionError, KeyError, TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Dados da modelagem inválidos para exportar. Gere a modelagem novamente.")
     except Exception as e:
@@ -431,10 +439,11 @@ async def exportar_planilha_testes_dados(request: Request):
             detail=f"Erro ao exportar planilha Excel: {type(e).__name__}: {e}. Detalhes em {_BACKEND_LOG}",
         )
     ivr = re.sub(r"[^A-Za-z0-9_-]", "", str(corpo.get("jira_ivr") or "URA"))
+    sufixo_filtro = ("_" + re.sub(r"[^A-Za-z0-9_-]", "", "-".join(filtro_specs))) if filtro_specs else ""
     return StreamingResponse(
         io.BytesIO(xlsx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=Plano_de_Testes_URA_{ivr or 'URA'}.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename=Plano_de_Testes_URA_{ivr or 'URA'}{sufixo_filtro}.xlsx"},
     )
 
 

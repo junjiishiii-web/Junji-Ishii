@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=2.56" />
-  <script src="versao.js?v=2.63"></script>
+  <script src="versao.js?v=2.64"></script>
   <script src="automacao.js?v=2.56"></script>
   <script src="conferencia.js?v=2.56"></script>
   <script src="execucao.js?v=2.56"></script>
@@ -829,7 +829,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify(cacheModelagem),
+        body: JSON.stringify({ ...cacheModelagem, filtro_specs: Array.from(filtroSpecs) }),   // so os CTs do filtro de SPEC
       });
       if (!resp.ok) {
         const res = await resp.json().catch(() => null);
@@ -1416,7 +1416,8 @@
 
   async function baixarZipEvidencias(silencioso) {
     const entradas = [];
-    Object.keys(evidenciasPorCT).forEach(ct => (evidenciasPorCT[ct] || []).forEach(ev => {
+    const idsFiltro = new Set(casosFiltradosPorSpec(cacheModelagem).map(c => c.ct_id));
+    Object.keys(evidenciasPorCT).filter(ct => idsFiltro.has(ct)).forEach(ct => (evidenciasPorCT[ct] || []).forEach(ev => {
       entradas.push({ caminho: `evidencias/${ct.replace(/[^\p{L}\p{N}_-]/gu, '_')}/${ev.nome}`, blob: ev.blob });
     }));
     if (!entradas.length) {
@@ -1426,7 +1427,7 @@
     const url = URL.createObjectURL(await _montarZip(entradas));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Evidencias_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}.zip`;
+    a.download = `Evidencias_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}${sufixoFiltroSpec()}.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1456,7 +1457,7 @@
   // Divide os CTs em lotes (por tamanho de evidencias e quantidade de CTs) para
   // cada PDF caber numa requisicao ao servidor; projetos grandes saem em partes.
   function _lotesExportacao() {
-    const casos = cacheModelagem.casos_teste;
+    const casos = casosFiltradosPorSpec(cacheModelagem);
     const lotes = [];
     let atual = [], bytes = 0;
     casos.forEach(c => {
@@ -1480,7 +1481,8 @@
       jira_ivr: cacheModelagem.jira_ivr,
       casos_teste: casos,
       avaliacoes,
-      parte: partes > 1 ? `${parte} de ${partes} (${casos[0].ct_id} a ${casos[casos.length - 1].ct_id})` : '',
+      parte: [filtroSpecs.size ? `Filtro SPEC ${Array.from(filtroSpecs).join(' + ')}: ${cacheModelagem.casos_teste.length ? casosFiltradosPorSpec(cacheModelagem).length : 0} de ${cacheModelagem.casos_teste.length} CTs` : '',
+              partes > 1 ? `${parte} de ${partes} (${casos[0].ct_id} a ${casos[casos.length - 1].ct_id})` : ''].filter(Boolean).join(' — '),
     }));
     const meta = [];
     Object.keys(evidenciasPorCT).filter(ct => ids.has(ct)).forEach(ct => evidenciasPorCT[ct].forEach(ev => {
@@ -1497,7 +1499,7 @@
     const url = URL.createObjectURL(await resp.blob());
     const a = document.createElement('a');
     a.href = url;
-    const base = `Execucao_dos_Testes_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}`;
+    const base = `Execucao_dos_Testes_${(cacheModelagem.jira_ivr || 'URA').toString().replace(/[^A-Za-z0-9_-]/g, '')}${sufixoFiltroSpec()}`;
     a.download = partes > 1 ? `${base}_parte${parte}de${partes}.pdf` : `${base}.pdf`;
     document.body.appendChild(a);
     a.click();
@@ -1743,6 +1745,20 @@
         (filtroSpecs.size ? `<span class="spec-filtro-qtd">Exibindo ${visiveis} de ${data.casos_teste.length} CTs</span>` : '');
     }
     ['filtroSpecCenarios', 'filtroSpecExecucao'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = html; });
+    atualizarRotulosExportacao();
+  }
+  function sufixoFiltroSpec() {
+    return filtroSpecs.size ? '_' + Array.from(filtroSpecs).join('-').replace(/[^A-Za-z0-9_-]/g, '') : '';
+  }
+  // Com filtro ativo, os botoes de exportar avisam que so saem os CTs filtrados (xlsx, PDF e ZIP).
+  function atualizarRotulosExportacao() {
+    const ativo = filtroSpecs.size > 0;
+    const sufixo = ativo ? ` (filtro: ${Array.from(filtroSpecs).join(' + ')})` : '';
+    const mapa = { btnBaixarPlanilha: 'Exportar xlsx', btnExportPdf: '📄 Exportar PDF', btnExportZip: '📦 Evidências (.zip)' };
+    Object.keys(mapa).forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.disabled) el.textContent = mapa[id] + sufixo;
+    });
   }
   function redesenharListasCT() {
     if (!cacheModelagem) return;

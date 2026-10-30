@@ -242,6 +242,44 @@ def dados_para_frontend(dados):
     return {k: v for k, v in dados.items() if not k.startswith("_")}
 
 
+def filtrar_dados_por_spec(dados, specs):
+    """Exportacao FILTRADA: so os CTs que passam por uma das SPECs escolhidas (CRN, MOVEL...). Legenda, marcacoes de BI
+    e SPs de regressao acompanham o recorte; o planejamento completo (de todos os CTs) sai da planilha."""
+    specs = {str(x) for x in (specs or []) if x}
+    if not specs:
+        return dados
+    todos = dados.get("casos_teste") or []
+    casos = [c for c in todos if any((s or {}).get("spec") in specs for s in (c.get("steps") or []))]
+    ids = {c["ct_id"] for c in casos}
+
+    def _filtrar(lista):
+        saida = []
+        for linha in lista or []:
+            cts = [x.strip() for x in str(linha.get("ct") or "").split(",") if x.strip() in ids]
+            if cts:
+                saida.append({**linha, "ct": ", ".join(cts)})
+        return saida
+
+    legenda = []
+    for b in dados.get("legenda") or []:
+        do_bloco = [c for c in casos if c.get("bloco_nome") == b.get("bloco")]
+        if not do_bloco:
+            continue
+        sps = sorted({c["sp_final"] for c in do_bloco if c.get("sp_final")})
+        cts = [c["ct_id"] for c in do_bloco]
+        legenda.append({**b, "cts": f"{cts[0]} a {cts[-1]}" if len(cts) > 1 else cts[0], "sps": ", ".join(sps) if sps else "Preservação sem novo SP"})
+    novo = dict(dados)
+    novo.update(
+        casos_teste=casos,
+        legenda=legenda,
+        bi_marcacoes=_filtrar(dados.get("bi_marcacoes")),
+        sps_regressao=_filtrar(dados.get("sps_regressao")),
+        planejamento=None,
+        filtro_descricao=f"SPEC {', '.join(sorted(specs))} — {len(casos)} de {len(todos)} CTs",
+    )
+    return novo
+
+
 def dados_do_navegador_para_exportacao(dados):
     """Reconstroi o que o gerador de xlsx precisa a partir do JSON que o proprio
     navegador guardou (resultado da modelagem) — assim o xlsx sai mesmo quando o
@@ -255,6 +293,7 @@ def dados_do_navegador_para_exportacao(dados):
         "sps_regressao": dados.get("sps_regressao") or [],
         "legenda": legenda,
         "blocos": [{"titulo": l.get("titulo", "")} for l in legenda],
+        "filtro_descricao": dados.get("filtro_descricao"),
     }
     plano_empresas = {"casos_teste": dados["casos_teste_empresas"]} if dados.get("casos_teste_empresas") else None
     return {
