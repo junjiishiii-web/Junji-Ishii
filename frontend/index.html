@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=2.56" />
-  <script src="versao.js?v=2.61"></script>
+  <script src="versao.js?v=2.62"></script>
   <script src="automacao.js?v=2.56"></script>
   <script src="conferencia.js?v=2.56"></script>
   <script src="execucao.js?v=2.56"></script>
@@ -201,6 +201,7 @@
 
     <!-- MASSA DE TESTES -->
     <div class="sheet-panel" id="tabMassa">
+      <div class="conf-alerta" id="massaAvisoVersao" style="display:none; margin-bottom:10px;"></div>
       <div class="massa-padrao" id="massaPadrao"></div>
       <table class="data-table">
         <thead>
@@ -726,6 +727,7 @@
       if (!res) { alert("O servidor respondeu algo que não é JSON válido."); return; }
 
       cacheModelagem = res;
+      cacheModelagem._massa_v = 2;
       await iniciarTrabalhoSalvo(res);
       renderizarWorkspaceQA(res);
       switchExcelTab('tabCapa', document.querySelector('#tabBar .tab-btn'));
@@ -1140,7 +1142,10 @@
     try {
       const lista = (cacheModelagem && cacheModelagem.bi_marcacoes) || [];
       const faltaEstado = lista.length && !lista.every(sp => sp.estado);
-      if (!faltaEstado && cacheModelagem.planejamento) return;
+      // Modelagens salvas por versoes anteriores nao trazem os "Dados da massa" por CT (2.60+): busca de novo
+      // no servidor e completa SO esse campo (CTs, status e evidencias nao sao tocados).
+      const faltaMassa = !(cacheModelagem && cacheModelagem._massa_v >= 2);
+      if (!faltaEstado && cacheModelagem.planejamento && !faltaMassa) return;
       if (!(await reenviarEntradasSalvas())) return;
       const tipo = (ui && ui.tipo_a) || document.getElementById('projetoTipoSelect').value;
       const ivr = encodeURIComponent((ui && ui.ivr) || '');
@@ -1158,6 +1163,25 @@
       // O plano so e aproveitado se descreve a mesma modelagem salva (mesmo numero de CTs).
       if (!cacheModelagem.planejamento && novo.planejamento && (novo.casos_teste || []).length === cacheModelagem.casos_teste.length) {
         cacheModelagem.planejamento = novo.planejamento;
+      }
+      if (faltaMassa) {
+        const mesmos = (novo.casos_teste || []).length === cacheModelagem.casos_teste.length
+          && cacheModelagem.casos_teste.every((c, i) => novo.casos_teste[i].ct_id === c.ct_id);
+        cacheModelagem._massa_v = 2;
+        if (mesmos) {
+          cacheModelagem.casos_teste.forEach((c, i) => { c.condicoes_massa = novo.casos_teste[i].condicoes_massa; });
+          document.querySelectorAll('#massaTableBody tr').forEach(tr => {
+            const caso = cacheModelagem.casos_teste.find(c => c.ct_id === (tr.cells[0] && tr.cells[0].textContent.trim()));
+            if (caso && tr.cells[3]) tr.cells[3].innerHTML = htmlCondicoesMassa(caso);
+          });
+        } else {
+          cacheModelagem._massa_defasada = true;
+          const aviso = document.getElementById('massaAvisoVersao');
+          if (aviso) {
+            aviso.innerHTML = '⚠️ Esta modelagem foi gerada por uma versão anterior (outra quantidade/numeração de CTs) e não traz o bloco <strong>📦 Dados da massa</strong>. Para ver o segmento, StatusContrato etc., gere a modelagem de novo (isso zera status/evidências — exporte o PDF antes, se precisar).';
+            aviso.style.display = 'block';
+          }
+        }
       }
       renderizarBI(cacheModelagem);
       renderizarPlanejamento(cacheModelagem);

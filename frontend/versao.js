@@ -3,6 +3,14 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.62',
+    data: '30/10/2026',
+    itens: [
+      'Projeto de Ativação de Chip: todo CT traz no "Dados da massa" o escopo do projeto — cliente ComboMulti OBRIGATÓRIO (possui produto Residencial — Internet/TV... — E linha de celular; segmento 10, também 13/14/16). A definição de ComboMulti passa a aparecer em todo CT com CM.',
+      'Modelagens salvas no navegador por versões anteriores recebem o bloco "Dados da massa" automaticamente ao abrir (sem mexer em status/evidências); se a numeração dos CTs mudou, a aba Massa de Testes avisa para gerar de novo.',
+    ],
+  },
+  {
     numero: '2.61',
     data: '30/10/2026',
     itens: [

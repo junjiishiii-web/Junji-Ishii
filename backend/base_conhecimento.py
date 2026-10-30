@@ -12,7 +12,18 @@ SEGMENTOS = {
     "JOVEM": 9, "NETCLARO (CM)": 10, "COMBOMULTI3G (CM)": 13, "COMBOMULTI_PME (CM)": 14, "PME_SLA": 15,
     "PURPLE_PME_PF_SLA (CM)": 16, "GREY": 17, "OTHERSEGMENTO": 0,
 }
-SEGMENTOS_CM_TXT = "ComboMulti (CM) = segmento 10 (NETCLARO); também são CM: 13 (COMBOMULTI3G), 14 (COMBOMULTI_PME) e 16 (PURPLE_PME_PF_SLA)"
+SEGMENTOS_CM_TXT = ("cliente ComboMulti (CM): possui produto(s) Residencial (Internet, TV...) E também uma linha de celular — "
+                    "segmento 10 (NETCLARO); também são CM: 13 (COMBOMULTI3G), 14 (COMBOMULTI_PME) e 16 (PURPLE_PME_PF_SLA)")
+PRODUTOS_CM_TXT = "possuir produto Residencial (Internet / TV / ...) E linha de celular (cliente ComboMulti)"
+
+# Projetos cujo proprio escopo exige cliente CM (ex.: ativacao de chip Claro Multi)
+RX_PROJETO_CM = re.compile(r"ativa[cç][aã]o\s+de\s+chip|ativacao_?chip|chip[\s_]*cm\b|combo\s*multi|claro\s*multi", re.IGNORECASE)
+
+
+def projeto_exige_cm(*textos):
+    return any(RX_PROJETO_CM.search(str(t or "")) or eh_cm(t) for t in textos)
+
+
 SEGMENTOS_NAO_CM_TXT = "NÃO é ComboMulti (segmento diferente de 10, 13, 14 e 16)"
 
 # (padrao no texto da condicao, descricao do segmento com o codigo)

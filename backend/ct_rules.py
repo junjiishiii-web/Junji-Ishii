@@ -939,7 +939,7 @@ _RX_IDENTIFICOU = re.compile(
 )
 
 
-def _massa_por_ct(steps):
+def _massa_por_ct(steps, projeto_cm=False):
     """Detalha a massa do CT (o que o cliente/API precisam ter para a ligacao seguir ESTE caminho): segmento,
     status do contrato/identificacao/pagamento/fatura/VT (com os CODIGOS da base de conhecimento da squad), documento,
     produto/linha, chaves, dados e retornos de API, base/mailing, recencia, horario.
@@ -954,7 +954,7 @@ def _massa_por_ct(steps):
         if not valor:
             return
         lista = grupos.setdefault(campo, [])
-        if valor.lower() not in {x.lower() for x in lista} and len(lista) < 8:
+        if valor.lower() not in {x.lower() for x in lista} and (frente or len(lista) < 8):
             lista.insert(0, valor[:170]) if frente else lista.append(valor[:170])
 
     def primeiro(tabela, texto):
@@ -1025,7 +1025,10 @@ def _massa_por_ct(steps):
                 if achou_seg:
                     continue
                 if re.search(r"cliente ge|rubi|premium|\bouro\b|gaming|piloto|\bvip\b|empresarial|segmento", baixo):
-                    add("Segmento", f"{frag} (código do segmento não consta na base de conhecimento)")
+                    if projeto_cm and re.search(r"sem\s+residencial", baixo):
+                        add("Segmento", f"⚠️ Divergente do escopo (CM exige produto residencial) — condição do caminho: {frag}")
+                    else:
+                        add("Segmento", f"{frag} (código do segmento não consta na base de conhecimento)")
                     continue
                 # chaves
                 mc = _RX_CHAVE_ESTADO.search(frag)
@@ -1057,7 +1060,10 @@ def _massa_por_ct(steps):
                     add("Produto / linha", frag)
                 elif re.search(r"mailing|\bbase\b|cadastrad", baixo):
                     add("Base / mailing", frag)
-    if cm:
+    if projeto_cm and not nao_cm:
+        add("Segmento", "ESCOPO DO PROJETO (Ativação de Chip) — OBRIGATORIAMENTE " + bc.SEGMENTOS_CM_TXT, frente=True)
+        add("Produto / linha", bc.PRODUTOS_CM_TXT, frente=True)
+    elif cm:
         add("Segmento", bc.SEGMENTOS_CM_TXT, frente=True)
     elif nao_cm:
         add("Segmento", bc.SEGMENTOS_NAO_CM_TXT, frente=True)
@@ -1217,6 +1223,12 @@ class GeradorCT:
         self._notas_caminho = {}
         self._bfs = self._bfs_completo if modo_completo else bfs_caminho_entrada
         self._via_cache = {}
+        # o escopo do projeto exige cliente ComboMulti? (titulo do IVR, nome no EEP, estados/alteracoes do versionamento)
+        _vers = (spec_model.get("versionamento") or {})
+        self._projeto_cm = bc.projeto_exige_cm(
+            _vers.get("ivr"), (eep_model or {}).get("nome"),
+            *[f"{e.get('nome')} {e.get('alteracao')}" for e in (_vers.get("estados_alterados") or [])],
+        ) and not modo_completo
         if spec_model.get("_specs"):
             self._bfs_base = self._bfs
             self._bfs = self._bfs_encadeado
@@ -1385,7 +1397,7 @@ class GeradorCT:
         # antes so apontava "veja o Pré-Requisito" em vez de mostrar os
         # requisitos de verdade.
         requisitos_massa = " | ".join(pre_req_partes)
-        condicoes = _condicoes_da_massa(perfil, restricoes, tags, condicoes_massa, steps) + _massa_por_ct(steps)
+        condicoes = _condicoes_da_massa(perfil, restricoes, tags, condicoes_massa, steps) + _massa_por_ct(steps, self._projeto_cm)
         cond_pre, contexto_pre = _condicao_do_ct(alteracao, transicao_final)
         if cond_pre and not gherkin_override:
             pre_req_partes.append(f"Estado: {estado}")
