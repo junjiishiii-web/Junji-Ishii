@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.60',
+    data: '30/10/2026',
+    itens: [
+      'Massa de Testes: além das condições do caminho, cada CT ganha o bloco "📦 Dados da massa para este CT" com o que o cliente/API precisam ter, lido das condições da SPEC: Segmento (ex.: ComboMulti = segmento 10), StatusContrato (1 = conectado), Documento, Produto/linha, Quantidade, Chaves (ativa/desativada), Dado/retorno de API, API/serviço, Base/mailing, Recência/prazo e Horário/data. Também vai para a aba Massa_Testes do Excel.',
+    ],
+  },
+  {
     numero: '2.59',
     data: '30/10/2026',
     itens: [

@@ -914,6 +914,125 @@ def _condicoes_da_massa(perfil, restricoes, tags, extras, steps):
     return itens
 
 
+# ── Massa POR CT: os dados que o cliente/API precisam ter, lidos das condicoes do caminho da SPEC
+_ORDEM_MASSA = (
+    "Segmento", "StatusContrato", "Documento", "Produto / linha", "Quantidade", "Chaves (parâmetros)",
+    "Dado / retorno de API", "API / serviço", "Base / mailing", "Recência / prazo", "Horário / data",
+)
+_RX_IGNORAR_FRAG = re.compile(
+    r"^(else|primeir\w+ vez|segund\w+ vez|terceir\w+ vez|tratativas? de erro|nesse mesmo estado|direcionamento [uú]nico|"
+    r"veio d[oae]s? estado.*|ouviu .*|ani\s+(sim|n[aã]o)|dtmf.*|fim|n[aã]o h[aá] intera\w+)$",
+    re.IGNORECASE,
+)
+_RX_CHAVE_ESTADO = re.compile(
+    r"\bchave\s*:?\s*\[?([A-Za-z][A-Za-z0-9_]{4,})\]?\s*(?:=\s*)?(ativada|desativada|ligada|desligada|habilitada|desabilitada|ativa|inativa|true|false)\b",
+    re.IGNORECASE,
+)
+_RX_CHAVE_NOME = re.compile(r"\(\s*chave:\s*\[?([A-Za-z][A-Za-z0-9_]{4,})\]?\s*\)|\bchave\s+\[?([A-Z][A-Za-z0-9_]{7,})\]?")
+_RX_LIGADA = re.compile(r"^(ativada|ligada|habilitada|ativa|true)$", re.IGNORECASE)
+_RX_CONECTADO_NEG = re.compile(r"desconect|cancelad|suspens|bloquead|contrato\s+(?:inativo|encerrado)", re.IGNORECASE)
+_RX_IDENTIFICOU = re.compile(
+    r"id reconhecido|cpf ou cnpj (?:v[aá]lido|retornado)|apenas um cpf|ani reconhecido|cliente identificad|servi[cç]o ok|"
+    r"apenas um contrato|desambiguad|identificou|servi[cç]o conectado|possui (?:o )?produto",
+    re.IGNORECASE,
+)
+
+
+def _massa_por_ct(steps):
+    """Detalha a massa do CT (o que o cliente/API precisam ter para a ligacao seguir ESTE caminho): segmento,
+    status do contrato, documento, produto/linha, chaves, dados e retornos de API, base/mailing, recencia, horario.
+    Tudo sai das condicoes dos passos; o que a SPEC nao diz fica sem inventar."""
+    grupos = {}
+
+    chaves_vistas = {}
+
+    def add(campo, valor):
+        valor = re.sub(r"\s+", " ", str(valor or "")).strip(" -:;,.")
+        if valor.count("(") != valor.count(")"):
+            valor = valor.replace("(", "").replace(")", "").strip()
+        if not valor:
+            return
+        lista = grupos.setdefault(campo, [])
+        if valor.lower() not in {x.lower() for x in lista} and len(lista) < 8:
+            lista.append(valor[:130])
+
+    identificou = negativo_status = False
+    for st in steps or []:
+        m = re.search(r"\((.*)\)(?:\s*➜.*)?\s*$", str(st.get("acao") or ""), re.DOTALL)
+        if not m:
+            continue
+        if re.search(r"_cm\b|claro\s*multi", str(st.get("estado") or ""), re.IGNORECASE):
+            add("Segmento", "ComboMulti = segmento 10")
+        for cond in re.split(r"\s+>\s+", m.group(1)):
+            cond = re.sub(r"\(([^()]*)\)", lambda mm: "(" + mm.group(1).replace(",", "/") + ")", cond)
+            cond = re.sub(r"entre\s+(\d+h\w*)\s+e\s+(\d+h\w*)", r"entre \1 a \2", cond, flags=re.IGNORECASE)   # faixa de horario
+            cond = re.sub(r"\b(MENOR|MAIOR)\s+OU\s+IGUAL", r"\1-OU-IGUAL", cond, flags=re.IGNORECASE)
+            for frag in re.split(r"\s+(?:E|OU|e|ou)\s+|\s*[;,]\s*|\n", cond):
+                frag = frag.strip()
+                if frag.startswith("(") and frag.endswith(")") and frag.count("(") == 1:
+                    frag = frag[1:-1].strip()
+                if len(re.sub(r"[^A-Za-zÀ-ú]", "", frag)) < 4 or _RX_IGNORAR_FRAG.match(frag) or _RX_SO_TECLA.match(frag):
+                    continue
+                baixo = frag.lower()
+                if _RX_IDENTIFICOU.search(frag):
+                    identificou = True
+                if _RX_CONECTADO_NEG.search(frag):
+                    negativo_status = True
+                    add("StatusContrato", f"≠ 1 — contrato NÃO conectado ({frag})")
+                    continue
+                # segmento
+                if re.search(r"combo\s*multi", baixo):
+                    if re.search(r"n[aã]o\s+(?:[eé]\s+)?(?:cliente\s+)?combo\s*multi|combo\s*multi\s*=\s*n[aã]o", baixo):
+                        add("Segmento", "NÃO é ComboMulti (segmento diferente de 10)")
+                    else:
+                        add("Segmento", "ComboMulti = segmento 10")
+                    continue
+                if re.fullmatch(r"demais segmentos?|outros segmentos?", baixo):
+                    continue
+                if re.search(r"cliente ge|rubi|black|premium|\bouro\b|gaming|piloto|\bvip\b|\bpme\b|empresarial|segmento", baixo):
+                    add("Segmento", frag)
+                    continue
+                # chaves
+                mc = _RX_CHAVE_ESTADO.search(frag)
+                if mc:
+                    if re.search(r"_cm\b", mc.group(1), re.IGNORECASE) and _RX_LIGADA.match(mc.group(2)):
+                        add("Segmento", "ComboMulti = segmento 10")
+                    if mc.group(1).lower() not in chaves_vistas:   # a mesma chave nao pode estar nos dois estados
+                        chaves_vistas[mc.group(1).lower()] = True
+                        add("Chaves (parâmetros)", f"{mc.group(1)} = {'ATIVA' if _RX_LIGADA.match(mc.group(2)) else 'DESATIVADA'}")
+                    continue
+                mn = _RX_CHAVE_NOME.search(frag)
+                if mn:
+                    add("Chaves (parâmetros)", f"{mn.group(1) or mn.group(2)} — conforme a condição: {frag[:70]}")
+                    continue
+                # campo = valor (dado do cliente / retorno de API)
+                mv = re.search(r"([A-Za-zÀ-ú][A-Za-zÀ-ú0-9_\.\s]{2,45}?)\s*(?:=|==)\s*([^\s].*)$", frag)
+                if mv and not re.search(r"chave", mv.group(1), re.IGNORECASE):
+                    add("Dado / retorno de API", f"{mv.group(1).strip()} = {mv.group(2).strip()}")
+                    continue
+                if re.search(r"\bapis?\b|consulta|sucesso|timeout|retorno|servi[cç]o\s+n?ok|erro (?:na|ao|de)", baixo):
+                    add("API / serviço", frag)
+                elif re.search(r"entre\s+\d+h|hor[aá]rio|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|feriado|\bhoje\b|amanh[aã]|manh[aã]|\btarde\b|noite", baixo):
+                    add("Horário / data", frag)
+                elif re.search(r"\bcpf\b|\bcnpj\b|\bpf\b|\bpj\b", baixo):
+                    add("Documento", frag)
+                elif re.search(r"mais de (?:um|uma|\d)|apenas (?:um|uma|\d)|[uú]nic[oa]|\d+\s+(?:contratos?|linhas?|chips?)", baixo):
+                    add("Quantidade", frag)
+                elif re.search(r"rec[eê]ncia|dentro do prazo|\bprazo\b|\d+\s*dias", baixo):
+                    add("Recência / prazo", frag)
+                elif re.search(r"linha (?:fixa|m[oó]vel|pme)|claro tv|banda larga|internet|controle|(?<![-\w])p[oó]s(?![-\w])|\bpr[eé]\b|chip|portabilidade|telefone|celular|m[oó]vel|\bfixa\b", baixo):
+                    add("Produto / linha", frag)
+                elif re.search(r"mailing|\bbase\b|cadastrad", baixo):
+                    add("Base / mailing", frag)
+    if identificou and not negativo_status:
+        add("StatusContrato", "1 (conectado) — cliente identificado com contrato ativo")
+    itens = []
+    for campo in _ORDEM_MASSA:
+        if grupos.get(campo):
+            itens.append({"rotulo": f"Massa · {campo}", "valor": " ; ".join(grupos[campo])})
+    return itens
+
+
 def _diverge_do_cenario(cenario, cond):
     """O caminho da SPEC contradiz a linha do cenário do EEP (ex.: cenário 'Crédito Reprovado' e o caminho
     passa por 'Crédito APROVADO'): o QA precisa saber antes de montar a massa."""
@@ -1223,7 +1342,7 @@ class GeradorCT:
         # antes so apontava "veja o Pré-Requisito" em vez de mostrar os
         # requisitos de verdade.
         requisitos_massa = " | ".join(pre_req_partes)
-        condicoes = _condicoes_da_massa(perfil, restricoes, tags, condicoes_massa, steps)
+        condicoes = _condicoes_da_massa(perfil, restricoes, tags, condicoes_massa, steps) + _massa_por_ct(steps)
         cond_pre, contexto_pre = _condicao_do_ct(alteracao, transicao_final)
         if cond_pre and not gherkin_override:
             pre_req_partes.append(f"Estado: {estado}")

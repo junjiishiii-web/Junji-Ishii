@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=2.56" />
-  <script src="versao.js?v=2.59"></script>
+  <script src="versao.js?v=2.60"></script>
   <script src="automacao.js?v=2.56"></script>
   <script src="conferencia.js?v=2.56"></script>
   <script src="execucao.js?v=2.56"></script>
@@ -880,8 +880,12 @@
   function htmlCondicoesMassa(caso) {
     const itens = (caso.condicoes_massa && caso.condicoes_massa.length) ? caso.condicoes_massa : condicoesMassaDoNavegador(caso);
     if (!itens.length) return `${escHtml(caso.requisitos_massa || caso.perfil || '—')}`;
-    return `<ul class="massa-condicoes">${itens.map(i =>
-      `<li class="${/Divergente/.test(i.rotulo) ? 'massa-divergente' : ''}"><strong>${escHtml(i.rotulo)}:</strong> ${escHtml(i.valor)}</li>`).join('')}</ul>`;
+    const ehMassa = i => /^Massa · /.test(i.rotulo);
+    const lista = arr => `<ul class="massa-condicoes">${arr.map(i =>
+      `<li class="${/Divergente/.test(i.rotulo) ? 'massa-divergente' : ''}"><strong>${escHtml(i.rotulo.replace(/^Massa · /, ''))}:</strong> ${escHtml(i.valor)}</li>`).join('')}</ul>`;
+    const caminho = itens.filter(i => !ehMassa(i)), dados = itens.filter(ehMassa);
+    return lista(caminho) + (dados.length
+      ? `<div class="massa-dados"><div class="massa-dados-titulo">📦 Dados da massa para este CT</div>${lista(dados)}</div>` : '');
   }
 
   // Modelagens salvas antes da 2.34 não trazem condicoes_massa: monta o mesmo detalhamento com o que
