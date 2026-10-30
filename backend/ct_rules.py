@@ -12,6 +12,7 @@ import functools
 import re
 from collections import deque
 
+import base_conhecimento as bc
 from spec_reader import normalizar_chave, resolver_destino
 
 MAX_GHERKIN = 255
@@ -916,7 +917,7 @@ def _condicoes_da_massa(perfil, restricoes, tags, extras, steps):
 
 # ── Massa POR CT: os dados que o cliente/API precisam ter, lidos das condicoes do caminho da SPEC
 _ORDEM_MASSA = (
-    "Segmento", "StatusContrato", "Documento", "Produto / linha", "Quantidade", "Chaves (parâmetros)",
+    "Segmento", "StatusContrato", "Status de identificação", "Status de pagamento", "Status da fatura", "Status VT", "Documento", "Produto / linha", "Quantidade", "Chaves (parâmetros)",
     "Dado / retorno de API", "API / serviço", "Base / mailing", "Recência / prazo", "Horário / data",
 )
 _RX_IGNORAR_FRAG = re.compile(
@@ -940,13 +941,13 @@ _RX_IDENTIFICOU = re.compile(
 
 def _massa_por_ct(steps):
     """Detalha a massa do CT (o que o cliente/API precisam ter para a ligacao seguir ESTE caminho): segmento,
-    status do contrato, documento, produto/linha, chaves, dados e retornos de API, base/mailing, recencia, horario.
-    Tudo sai das condicoes dos passos; o que a SPEC nao diz fica sem inventar."""
+    status do contrato/identificacao/pagamento/fatura/VT (com os CODIGOS da base de conhecimento da squad), documento,
+    produto/linha, chaves, dados e retornos de API, base/mailing, recencia, horario.
+    Estado ou chave com "CM" no nome = cliente ComboMulti (regra da squad), mesmo que a chave esteja desligada."""
     grupos = {}
-
     chaves_vistas = {}
 
-    def add(campo, valor):
+    def add(campo, valor, frente=False):
         valor = re.sub(r"\s+", " ", str(valor or "")).strip(" -:;,.")
         if valor.count("(") != valor.count(")"):
             valor = valor.replace("(", "").replace(")", "").strip()
@@ -954,15 +955,25 @@ def _massa_por_ct(steps):
             return
         lista = grupos.setdefault(campo, [])
         if valor.lower() not in {x.lower() for x in lista} and len(lista) < 8:
-            lista.append(valor[:130])
+            lista.insert(0, valor[:170]) if frente else lista.append(valor[:170])
 
-    identificou = negativo_status = False
+    def primeiro(tabela, texto):
+        for rx, descricao in tabela:
+            if re.search(rx, texto, re.IGNORECASE):
+                return descricao
+        return None
+
+    cm = nao_cm = identificou = nao_identificou = status_ruim = False
     for st in steps or []:
+        if bc.eh_cm(st.get("estado")):
+            cm = True
         m = re.search(r"\((.*)\)(?:\s*➜.*)?\s*$", str(st.get("acao") or ""), re.DOTALL)
         if not m:
             continue
-        if re.search(r"_cm\b|claro\s*multi", str(st.get("estado") or ""), re.IGNORECASE):
-            add("Segmento", "ComboMulti = segmento 10")
+        if bc.RX_NAO_CM.search(m.group(1)):
+            nao_cm = True
+        elif bc.eh_cm(m.group(1)):
+            cm = True   # nome de chave/estado com CM dentro da condicao
         for cond in re.split(r"\s+>\s+", m.group(1)):
             cond = re.sub(r"\(([^()]*)\)", lambda mm: "(" + mm.group(1).replace(",", "/") + ")", cond)
             cond = re.sub(r"entre\s+(\d+h\w*)\s+e\s+(\d+h\w*)", r"entre \1 a \2", cond, flags=re.IGNORECASE)   # faixa de horario
@@ -976,27 +987,49 @@ def _massa_por_ct(steps):
                 baixo = frag.lower()
                 if _RX_IDENTIFICOU.search(frag):
                     identificou = True
-                if _RX_CONECTADO_NEG.search(frag):
-                    negativo_status = True
-                    add("StatusContrato", f"≠ 1 — contrato NÃO conectado ({frag})")
+                if re.search(r"n[aã]o\s+reconhecid|n[aã]o\s+identificad|n[aã]o\s+(?:foi\s+)?encontrad", baixo):
+                    nao_identificou = True
+                # status do contrato (desconectado / desabilitado)
+                desc_status = primeiro(bc.STATUS_CONTRATO_POR_TEXTO, frag)
+                if desc_status:
+                    status_ruim = True
+                    add("StatusContrato", f"{desc_status} — condição: {frag}")
                     continue
+                desc = None
+                if re.search(r"pagamento|boleto|cart[aã]o|d[eé]bito|local caixa", baixo):
+                    desc = primeiro(bc.PAGAMENTO_POR_TEXTO, frag)
+                    if desc:
+                        add("Status de pagamento", f"{desc} — condição: {frag}")
+                        continue
+                if "fatura" in baixo:
+                    desc = primeiro(bc.FATURA_POR_TEXTO, frag)
+                    if desc:
+                        add("Status da fatura", f"{desc} — condição: {frag}")
+                        continue
+                if re.search(r"visita|\bvt\b|\bos\b", baixo):
+                    desc = primeiro(bc.VT_POR_TEXTO, frag)
+                    if desc:
+                        add("Status VT", f"{desc} — condição: {frag}")
+                        continue
                 # segmento
-                if re.search(r"combo\s*multi", baixo):
-                    if re.search(r"n[aã]o\s+(?:[eé]\s+)?(?:cliente\s+)?combo\s*multi|combo\s*multi\s*=\s*n[aã]o", baixo):
-                        add("Segmento", "NÃO é ComboMulti (segmento diferente de 10)")
-                    else:
-                        add("Segmento", "ComboMulti = segmento 10")
-                    continue
                 if re.fullmatch(r"demais segmentos?|outros segmentos?", baixo):
                     continue
-                if re.search(r"cliente ge|rubi|black|premium|\bouro\b|gaming|piloto|\bvip\b|\bpme\b|empresarial|segmento", baixo):
-                    add("Segmento", frag)
+                if re.search(r"combo\s*multi", baixo):
+                    continue   # tratado no fim (CM)
+                achou_seg = False
+                for rx, descricao in bc.SEGMENTOS_POR_TEXTO:
+                    if re.search(rx, baixo):
+                        add("Segmento", descricao)
+                        achou_seg = True
+                        break
+                if achou_seg:
+                    continue
+                if re.search(r"cliente ge|rubi|premium|\bouro\b|gaming|piloto|\bvip\b|empresarial|segmento", baixo):
+                    add("Segmento", f"{frag} (código do segmento não consta na base de conhecimento)")
                     continue
                 # chaves
                 mc = _RX_CHAVE_ESTADO.search(frag)
                 if mc:
-                    if re.search(r"_cm\b", mc.group(1), re.IGNORECASE) and _RX_LIGADA.match(mc.group(2)):
-                        add("Segmento", "ComboMulti = segmento 10")
                     if mc.group(1).lower() not in chaves_vistas:   # a mesma chave nao pode estar nos dois estados
                         chaves_vistas[mc.group(1).lower()] = True
                         add("Chaves (parâmetros)", f"{mc.group(1)} = {'ATIVA' if _RX_LIGADA.match(mc.group(2)) else 'DESATIVADA'}")
@@ -1024,8 +1057,18 @@ def _massa_por_ct(steps):
                     add("Produto / linha", frag)
                 elif re.search(r"mailing|\bbase\b|cadastrad", baixo):
                     add("Base / mailing", frag)
-    if identificou and not negativo_status:
-        add("StatusContrato", "1 (conectado) — cliente identificado com contrato ativo")
+    if cm:
+        add("Segmento", bc.SEGMENTOS_CM_TXT, frente=True)
+    elif nao_cm:
+        add("Segmento", bc.SEGMENTOS_NAO_CM_TXT, frente=True)
+    if identificou and not status_ruim:
+        add("StatusContrato", "1 (CONECTADO) — cliente identificado com contrato ativo", frente=True)
+    if identificou and nao_identificou:
+        add("Status de identificação", f"na entrada: {bc.IDENTIFICACAO_NAO}; depois de informar o ID: {bc.IDENTIFICACAO_SIM}")
+    elif identificou:
+        add("Status de identificação", bc.IDENTIFICACAO_SIM)
+    elif nao_identificou:
+        add("Status de identificação", bc.IDENTIFICACAO_NAO)
     itens = []
     for campo in _ORDEM_MASSA:
         if grupos.get(campo):

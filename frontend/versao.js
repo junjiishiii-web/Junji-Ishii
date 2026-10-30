@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.61',
+    data: '30/10/2026',
+    itens: [
+      'Massa de Testes com a base de conhecimento da squad (planilha "Documentação importante"): estado ou chave com "CM" no nome = cliente ComboMulti (segmento 10; também CM: 13, 14 e 16), mesmo com a chave desligada; segmentos por nome (Black 1, Blue 2, Red 3, White 4, PME 6, Black VIP 7, Jovem 9, Grey 17...); StatusContrato (1 conectado; desconectado inadimplência 23/29/32/34; desabilitado 24...), Status de identificação (1 não identificado; 4/5 identificado), forma de pagamento, Status da fatura e Status VT com os códigos.',
+    ],
+  },
+  {
     numero: '2.60',
     data: '30/10/2026',
     itens: [
