@@ -964,6 +964,7 @@ def _massa_por_ct(steps, projeto_cm=False):
         return None
 
     cm = nao_cm = identificou = nao_identificou = status_ruim = False
+    seg_outros = []
     for st in steps or []:
         if bc.eh_cm(st.get("estado")):
             cm = True
@@ -993,23 +994,23 @@ def _massa_por_ct(steps, projeto_cm=False):
                 desc_status = primeiro(bc.STATUS_CONTRATO_POR_TEXTO, frag)
                 if desc_status:
                     status_ruim = True
-                    add("StatusContrato", f"{desc_status} — condição: {frag}")
+                    add("StatusContrato", desc_status)
                     continue
                 desc = None
                 if re.search(r"pagamento|boleto|cart[aã]o|d[eé]bito|local caixa", baixo):
                     desc = primeiro(bc.PAGAMENTO_POR_TEXTO, frag)
                     if desc:
-                        add("Status de pagamento", f"{desc} — condição: {frag}")
+                        add("Status de pagamento", desc)
                         continue
                 if "fatura" in baixo:
                     desc = primeiro(bc.FATURA_POR_TEXTO, frag)
                     if desc:
-                        add("Status da fatura", f"{desc} — condição: {frag}")
+                        add("Status da fatura", desc)
                         continue
                 if re.search(r"visita|\bvt\b|\bos\b", baixo):
                     desc = primeiro(bc.VT_POR_TEXTO, frag)
                     if desc:
-                        add("Status VT", f"{desc} — condição: {frag}")
+                        add("Status VT", desc)
                         continue
                 # segmento
                 if re.fullmatch(r"demais segmentos?|outros segmentos?", baixo):
@@ -1019,16 +1020,13 @@ def _massa_por_ct(steps, projeto_cm=False):
                 achou_seg = False
                 for rx, descricao in bc.SEGMENTOS_POR_TEXTO:
                     if re.search(rx, baixo):
-                        add("Segmento", descricao)
+                        seg_outros.append(descricao)
                         achou_seg = True
                         break
                 if achou_seg:
                     continue
                 if re.search(r"cliente ge|rubi|premium|\bouro\b|gaming|piloto|\bvip\b|empresarial|segmento", baixo):
-                    if projeto_cm and re.search(r"sem\s+residencial", baixo):
-                        add("Segmento", f"⚠️ Divergente do escopo (CM exige produto residencial) — condição do caminho: {frag}")
-                    else:
-                        add("Segmento", f"{frag} (código do segmento não consta na base de conhecimento)")
+                    seg_outros.append(f"{frag} (sem código na base de conhecimento)")
                     continue
                 # chaves
                 mc = _RX_CHAVE_ESTADO.search(frag)
@@ -1060,15 +1058,15 @@ def _massa_por_ct(steps, projeto_cm=False):
                     add("Produto / linha", frag)
                 elif re.search(r"mailing|\bbase\b|cadastrad", baixo):
                     add("Base / mailing", frag)
-    if projeto_cm and not nao_cm:
-        add("Segmento", "ESCOPO DO PROJETO (Ativação de Chip) — OBRIGATORIAMENTE " + bc.SEGMENTOS_CM_TXT, frente=True)
-        add("Produto / linha", bc.PRODUTOS_CM_TXT, frente=True)
-    elif cm:
-        add("Segmento", bc.SEGMENTOS_CM_TXT, frente=True)
-    elif nao_cm:
-        add("Segmento", bc.SEGMENTOS_NAO_CM_TXT, frente=True)
+    if (projeto_cm and not nao_cm) or cm:
+        add("Segmento", bc.SEGMENTOS_CM_TXT)   # CM: so isso (o escopo/nome ja dizem tudo)
+    else:
+        if nao_cm:
+            add("Segmento", bc.SEGMENTOS_NAO_CM_TXT)
+        for valor in seg_outros:
+            add("Segmento", valor)
     if identificou and not status_ruim:
-        add("StatusContrato", "1 (CONECTADO) — cliente identificado com contrato ativo", frente=True)
+        add("StatusContrato", bc.STATUS_CONTRATO_CONECTADO, frente=True)
     if identificou and nao_identificou:
         add("Status de identificação", f"na entrada: {bc.IDENTIFICACAO_NAO}; depois de informar o ID: {bc.IDENTIFICACAO_SIM}")
     elif identificou:

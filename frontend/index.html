@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=2.56" />
-  <script src="versao.js?v=2.62"></script>
+  <script src="versao.js?v=2.63"></script>
   <script src="automacao.js?v=2.56"></script>
   <script src="conferencia.js?v=2.56"></script>
   <script src="execucao.js?v=2.56"></script>
@@ -727,7 +727,7 @@
       if (!res) { alert("O servidor respondeu algo que não é JSON válido."); return; }
 
       cacheModelagem = res;
-      cacheModelagem._massa_v = 2;
+      cacheModelagem._massa_v = 3;
       await iniciarTrabalhoSalvo(res);
       renderizarWorkspaceQA(res);
       switchExcelTab('tabCapa', document.querySelector('#tabBar .tab-btn'));
@@ -1144,7 +1144,7 @@
       const faltaEstado = lista.length && !lista.every(sp => sp.estado);
       // Modelagens salvas por versoes anteriores nao trazem os "Dados da massa" por CT (2.60+): busca de novo
       // no servidor e completa SO esse campo (CTs, status e evidencias nao sao tocados).
-      const faltaMassa = !(cacheModelagem && cacheModelagem._massa_v >= 2);
+      const faltaMassa = !(cacheModelagem && cacheModelagem._massa_v >= 3);
       if (!faltaEstado && cacheModelagem.planejamento && !faltaMassa) return;
       if (!(await reenviarEntradasSalvas())) return;
       const tipo = (ui && ui.tipo_a) || document.getElementById('projetoTipoSelect').value;
@@ -1167,7 +1167,7 @@
       if (faltaMassa) {
         const mesmos = (novo.casos_teste || []).length === cacheModelagem.casos_teste.length
           && cacheModelagem.casos_teste.every((c, i) => novo.casos_teste[i].ct_id === c.ct_id);
-        cacheModelagem._massa_v = 2;
+        cacheModelagem._massa_v = 3;
         if (mesmos) {
           cacheModelagem.casos_teste.forEach((c, i) => { c.condicoes_massa = novo.casos_teste[i].condicoes_massa; });
           document.querySelectorAll('#massaTableBody tr').forEach(tr => {

@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.63',
+    data: '30/10/2026',
+    itens: [
+      'Dados da massa mais objetivos: "Segmento: 10 (ComboMulti)" (sem texto explicativo; quando o cliente é CM não lista outros segmentos), códigos no formato "código (NOME)" para StatusContrato, identificação, pagamento, fatura e VT, e o escopo "produto Residencial + celular" não entra mais em Produto/linha — só o que a navegação do CT realmente exige.',
+    ],
+  },
+  {
     numero: '2.62',
     data: '30/10/2026',
     itens: [

@@ -12,9 +12,7 @@ SEGMENTOS = {
     "JOVEM": 9, "NETCLARO (CM)": 10, "COMBOMULTI3G (CM)": 13, "COMBOMULTI_PME (CM)": 14, "PME_SLA": 15,
     "PURPLE_PME_PF_SLA (CM)": 16, "GREY": 17, "OTHERSEGMENTO": 0,
 }
-SEGMENTOS_CM_TXT = ("cliente ComboMulti (CM): possui produto(s) Residencial (Internet, TV...) E também uma linha de celular — "
-                    "segmento 10 (NETCLARO); também são CM: 13 (COMBOMULTI3G), 14 (COMBOMULTI_PME) e 16 (PURPLE_PME_PF_SLA)")
-PRODUTOS_CM_TXT = "possuir produto Residencial (Internet / TV / ...) E linha de celular (cliente ComboMulti)"
+SEGMENTOS_CM_TXT = "10 (ComboMulti)"   # CM tambem: 13, 14 e 16 (ver SEGMENTOS)
 
 # Projetos cujo proprio escopo exige cliente CM (ex.: ativacao de chip Claro Multi)
 RX_PROJETO_CM = re.compile(r"ativa[cç][aã]o\s+de\s+chip|ativacao_?chip|chip[\s_]*cm\b|combo\s*multi|claro\s*multi", re.IGNORECASE)
@@ -24,21 +22,21 @@ def projeto_exige_cm(*textos):
     return any(RX_PROJETO_CM.search(str(t or "")) or eh_cm(t) for t in textos)
 
 
-SEGMENTOS_NAO_CM_TXT = "NÃO é ComboMulti (segmento diferente de 10, 13, 14 e 16)"
+SEGMENTOS_NAO_CM_TXT = "diferente de 10 (NÃO é ComboMulti)"
 
 # (padrao no texto da condicao, descricao do segmento com o codigo)
 SEGMENTOS_POR_TEXTO = (
-    (r"black\s*vip", "BLACK VIP = segmento 7"),
-    (r"black\s*jovem", "BLACK JOVEM = segmento 8 (não usado mais)"),
-    (r"\bblack\b", "BLACK = segmento 1"),
-    (r"\bblue\b", "BLUE = segmento 2"),
-    (r"\bred\b", "RED = segmento 3"),
-    (r"\bwhite\b", "WHITE = segmento 4"),
-    (r"sem segmento|\bbsdo\b", "SEM SEGMENTO (BSDO) = segmento 5"),
+    (r"black\s*vip", "7 (BLACK VIP)"),
+    (r"black\s*jovem", "8 (BLACK JOVEM)"),
+    (r"\bblack\b", "1 (BLACK)"),
+    (r"\bblue\b", "2 (BLUE)"),
+    (r"\bred\b", "3 (RED)"),
+    (r"\bwhite\b", "4 (WHITE)"),
+    (r"sem segmento|\bbsdo\b", "5 (SEM SEGMENTO (BSDO))"),
     (r"pme[\s_]*sla", "PME_SLA = segmento 15"),
-    (r"\bpme\b", "PME = segmento 6"),
-    (r"\bjovem\b", "JOVEM = segmento 9"),
-    (r"\bgrey\b", "GREY = segmento 17"),
+    (r"\bpme\b", "6 (PME)"),
+    (r"\bjovem\b", "9 (JOVEM)"),
+    (r"\bgrey\b", "17 (GREY)"),
 )
 
 STATUS_CONTRATO_CONECTADO = "1 (CONECTADO)"
@@ -46,13 +44,13 @@ STATUS_CONTRATO_POR_TEXTO = (
     (r"inadimpl\w*\s+total", "23 (DESCONECTADO INADIMPLÊNCIA TOTAL)"),
     (r"inadimpl\w*\s+bt\b", "32 (DESCONECTADO INADIMPLÊNCIA BT)"),
     (r"inadimpl\w*\s+bp\b", "34 (DESCONECTADO INADIMPLÊNCIA BP)"),
-    (r"desconect\w*|inadimpl\w*", "29 (DESCONECTADO INADIMPLÊNCIA) — variantes: 23 total, 32 BT, 34 BP"),
-    (r"desabilitad\w*\s+parcial|parcialmente\s+desabilit\w*", "36 (DESABILITADO PARCIAL) — variantes: 35, 37, 41, 26"),
+    (r"desconect\w*|inadimpl\w*", "29 (DESCONECTADO INADIMPLÊNCIA)"),
+    (r"desabilitad\w*\s+parcial|parcialmente\s+desabilit\w*", "36 (DESABILITADO PARCIAL)"),
     (r"desabilit\w*", "24 (DESABILITADO)"),
 )
 
-IDENTIFICACAO_NAO = "1 (NÃO IDENTIFICADO — CustomerContract e IdentificarContrato falham)"
-IDENTIFICACAO_SIM = "4 (IDENTIFICADO — CustomerContract e Orquestração obrigatória Topo com sucesso); 5 se pela contingência (IdentificarContrato)"
+IDENTIFICACAO_NAO = "1 (NÃO IDENTIFICADO)"
+IDENTIFICACAO_SIM = "4 (IDENTIFICADO)"
 
 PAGAMENTO_POR_TEXTO = (
     (r"d[eé]bito\s+folha", "5 (DEBITO FOLHA)"),
