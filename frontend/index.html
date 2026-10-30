@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=2.56" />
-  <script src="versao.js?v=2.58"></script>
+  <script src="versao.js?v=2.59"></script>
   <script src="automacao.js?v=2.56"></script>
   <script src="conferencia.js?v=2.56"></script>
   <script src="execucao.js?v=2.56"></script>
@@ -229,6 +229,7 @@
 
     <!-- CENÁRIOS (BDD) -->
     <div class="sheet-panel" id="tabCenarios">
+      <div class="spec-filtro" id="filtroSpecCenarios"></div>
       <div id="cenariosContainer"></div>
     </div>
 
@@ -250,6 +251,7 @@
         <div class="exec-legenda" id="execLegenda"></div>
         <div class="exec-salvo" id="execSalvo"></div>
       </div>
+      <div class="spec-filtro" id="filtroSpecExecucao"></div>
       <div id="execucaoContainer"></div>
     </div>
 
@@ -1673,12 +1675,61 @@
 
     // ── 4. CENÁRIOS BDD ──────────────────────────────────────
     const cenarios = document.getElementById('cenariosContainer');
+    filtroSpecs = new Set();
+    renderizarFiltroSpec(data);
     renderizarEmLotes(cenarios, data.casos_teste, false);
     renderizarEmLotes(document.getElementById('execucaoContainer'), data.casos_teste, true);
     evidenciasPorCT = {};
     atualizarResumoExecucao();
     iniciarAutomacao(true);
     return renderizarRevisao(data);
+  }
+
+  /* ─── Filtro por SPEC (coluna Estado): so os CTs que passam por uma SPEC (CRN, MÓVEL, SEGMENTOS...) ─── */
+  let filtroSpecs = new Set();
+  function specsDoCt(caso) {
+    return Array.from(new Set((caso.steps || []).map(s => s.spec).filter(Boolean)));
+  }
+  function casosFiltradosPorSpec(data) {
+    const todos = data.casos_teste;
+    if (!filtroSpecs.size) return todos;
+    return todos.filter(c => specsDoCt(c).some(x => filtroSpecs.has(x)));
+  }
+  function renderizarFiltroSpec(data) {
+    const cont = {}, saida = {};
+    data.casos_teste.forEach(c => {
+      specsDoCt(c).forEach(x => { cont[x] = (cont[x] || 0) + 1; });
+      (c.steps || []).forEach(s => {
+        if (s.spec && /\(SPEC [^)]+\)\s*$/.test(s.estado || '')) saida[s.spec] = true;
+      });
+    });
+    const rotulos = Object.keys(cont);
+    let html = '';
+    if (rotulos.length > 1) {
+      const visiveis = casosFiltradosPorSpec(data).length;
+      html = `<span class="spec-filtro-titulo">Filtrar CTs por SPEC (coluna Estado):</span>
+        <button type="button" class="spec-chip ${filtroSpecs.size ? '' : 'ativo'}" onclick="limparFiltroSpec()">Todas · ${data.casos_teste.length}</button>` +
+        rotulos.map(x => `<button type="button" class="spec-chip ${filtroSpecs.has(x) ? 'ativo' : ''}" data-spec="${escHtml(x)}"
+          title="${saida[x] ? 'SPEC não anexada: o CT termina na saída para ela' : 'CTs que passam por esta SPEC'}"
+          onclick="alternarFiltroSpec(this.dataset.spec)">${escHtml(x)}${saida[x] ? ' (saída)' : ''} · ${cont[x]}</button>`).join('') +
+        (filtroSpecs.size ? `<span class="spec-filtro-qtd">Exibindo ${visiveis} de ${data.casos_teste.length} CTs</span>` : '');
+    }
+    ['filtroSpecCenarios', 'filtroSpecExecucao'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = html; });
+  }
+  function redesenharListasCT() {
+    if (!cacheModelagem) return;
+    const casos = casosFiltradosPorSpec(cacheModelagem);
+    renderizarEmLotes(document.getElementById('cenariosContainer'), casos, false);
+    renderizarEmLotes(document.getElementById('execucaoContainer'), casos, true);
+    renderizarFiltroSpec(cacheModelagem);
+  }
+  function alternarFiltroSpec(spec) {
+    if (filtroSpecs.has(spec)) filtroSpecs.delete(spec); else filtroSpecs.add(spec);
+    redesenharListasCT();
+  }
+  function limparFiltroSpec() {
+    filtroSpecs = new Set();
+    redesenharListasCT();
   }
 
   // SPECs inteiras geram milhares de CTs: desenha em lotes e carrega o resto ao rolar (ou pelo botao).

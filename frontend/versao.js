@@ -3,6 +3,13 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
+    numero: '2.59',
+    data: '30/10/2026',
+    itens: [
+      'Filtro por SPEC nas abas Cenários (BDD) e Execução dos Testes: com SPECs encadeadas, botões (URAID, CRN, MÓVEL, SEGMENTOS...) mostram só os CTs que passam pela(s) SPEC(s) escolhida(s), com a contagem de cada uma; "Todas" volta ao normal. Saídas para SPEC não anexada aparecem como "(saída)".',
+    ],
+  },
+  {
     numero: '2.58',
     data: '30/10/2026',
     itens: [
