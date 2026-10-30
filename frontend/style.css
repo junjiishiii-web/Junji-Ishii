@@ -903,3 +903,5 @@ textarea.auto-input { resize: vertical; line-height: 1.45; }
 .massa-prev-origem { color: #666; font-size: 10.5px; }
 .massa-prev-aviso td { background: #FFF6D6; }
 .massa-prev-alerta { color: #6B4E00; font-size: 11px; margin-top: 3px; }
+
+.spec-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:8px; font-size:10px; font-weight:700; background:#e0e7ff; color:#3730a3; vertical-align:middle; }

@@ -14,6 +14,7 @@ import color_utils
 import eep_reader
 import jira_fix
 import spec_reader
+import specs_encadeadas
 import validator
 import xlsx_writer
 from ct_rules import gerar_plano_ct
@@ -30,6 +31,12 @@ def _sem_callback(pct, etapa):
     pass
 
 
+def _ct_start(spec_model):
+    from ct_rules import _detectar_start_state
+
+    return _detectar_start_state(spec_model)
+
+
 _TERMOS_100 = {"mapear100", "mapear100%", "100", "100%", "completa", "specinteira", "specCompleta".lower(), "tudo", "todos", "all"}
 
 
@@ -43,7 +50,7 @@ def pede_spec_completa(ivr_code, tem_eep):
 
 def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code=None,
                                      eep_filename="", spec_bytes_empresas=None, progress_callback=None,
-                                     modo_completo=False):
+                                     modo_completo=False, spec_filename="", specs_encadeadas_lista=None):
     avisar = progress_callback or _sem_callback
     spec_raw = _bytes_of(spec_bytes)
     eep_raw = _bytes_of(eep_bytes) if eep_bytes else b""
@@ -71,12 +78,27 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
         eep_model = eep_reader.minerar_eep(eep_raw, eep_filename)
 
     avisar(6, "Lendo a SPEC...")
+    # SPECs encadeadas (ex.: URA Identificadora -> CRN): a de ENTRADA do fluxo vem primeiro.
+    lista_specs = [(spec_raw, spec_filename or "SPEC")] + [(_bytes_of(b), n) for b, n in (specs_encadeadas_lista or [])]
+    lista_specs = specs_encadeadas.ordenar_specs(lista_specs)
+    encadeado = len(lista_specs) > 1
+    spec_raw = lista_specs[0][0]
     spec_model = spec_reader.read_spec(
         io.BytesIO(spec_raw), ivr_code=ivr_code,
         eep_nome=eep_model.get("nome"), eep_filename=eep_filename, eep_jira=eep_model.get("jira"),
     )
     # Codigo efetivo: o informado ou, se vazio, o descoberto pelo nome do projeto.
     ivr_efetivo = spec_model.get("ivr_resolvido") or ivr_code
+    modelos_encadeados = [spec_model]
+    if encadeado:
+        for n_spec, (raw_n, nome_n) in enumerate(lista_specs[1:], start=2):
+            avisar(7 + n_spec, f"Lendo a SPEC {n_spec} ({nome_n})...")
+            modelos_encadeados.append(
+                spec_reader.read_spec(
+                    io.BytesIO(raw_n), ivr_code=ivr_efetivo,
+                    eep_nome=eep_model.get("nome"), eep_filename=eep_filename, eep_jira=eep_model.get("jira"),
+                )
+            )
 
     # EEP com tabela de cenarios/targets de transferencia e projeto que nao aparece na SPEC (nao houve alteracao de
     # navegacao): trata como projeto de transferencia, mesmo que o seletor esteja em "Alteracao de SPEC".
@@ -88,14 +110,30 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
             transferencia_auto = True
 
     avisar(12, "Detectando a(s) cor(es) da versão vigente...")
-    cores_detectadas = [] if (modo_completo or not tipo_a) else color_utils.detectar_cores_projeto(io.BytesIO(spec_raw), ivr_efetivo)
-    # Cores que marcam as linhas dos estados no versionamento (ex.: amarelo) tambem identificam as
-    # celulas alteradas nas abas de estado, mesmo quando o cabecalho do bloco usa outra cor.
-    for cor_estado in spec_model["versionamento"].get("cores_estados", []):
-        if cor_estado not in cores_detectadas:
-            cores_detectadas = list(cores_detectadas) + [cor_estado]
+
+    def _cores_e_itens(raw_x, modelo_x):
+        cores_x = [] if (modo_completo or not tipo_a) else color_utils.detectar_cores_projeto(io.BytesIO(raw_x), ivr_efetivo)
+        # Cores que marcam as linhas dos estados no versionamento (ex.: amarelo) tambem identificam as
+        # celulas alteradas nas abas de estado, mesmo quando o cabecalho do bloco usa outra cor.
+        for cor_estado in modelo_x["versionamento"].get("cores_estados", []):
+            if cor_estado not in cores_x:
+                cores_x = list(cores_x) + [cor_estado]
+        itens_x = color_utils.scan_all_sheets_for_color(io.BytesIO(raw_x), cores_x) if cores_x else {}
+        return cores_x, itens_x
+
+    cores_detectadas, itens_cor = _cores_e_itens(spec_raw, spec_model)
     cor_detectada = cores_detectadas[0] if cores_detectadas else None
-    itens_cor = color_utils.scan_all_sheets_for_color(io.BytesIO(spec_raw), cores_detectadas) if cores_detectadas else {}
+    if encadeado:
+        rotulos = specs_encadeadas.rotulos_unicos([n for _b, n in lista_specs])
+        itens_comb = [
+            {"modelo": spec_model, "rotulo": rotulos[0], "arquivo": lista_specs[0][1], "itens_cor": itens_cor}
+        ]
+        for k in range(1, len(lista_specs)):
+            _c, itens_k = _cores_e_itens(lista_specs[k][0], modelos_encadeados[k])
+            itens_comb.append({"modelo": modelos_encadeados[k], "rotulo": rotulos[k], "arquivo": lista_specs[k][1], "itens_cor": itens_k})
+        inicio_entrada = _ct_start(spec_model)
+        spec_model, itens_cor = specs_encadeadas.combinar_specs(itens_comb)
+        spec_model["_start_state_resolvido"] = inicio_entrada
 
     def _sub_progresso(pct_interno, etapa):
         # A geracao de CTs relata seu proprio progresso 0-100; remapeia para
@@ -130,6 +168,19 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
                 "detalhe": "O EEP traz uma tabela de cenários com IDs/targets de transferência e o projeto não aparece no "
                 "versionamento da SPEC: modelei como projeto de TRANSFERÊNCIA (1 CT por cenário do EEP, percorrendo a SPEC "
                 "até a transferência ATH).",
+            }
+        )
+    if encadeado:
+        specs_txt = " → ".join(f"{x['rotulo']} ({x['arquivo']})" for x in spec_model.get("_specs", []))
+        saltos = spec_model.get("_saltos_specs") or []
+        saltos_txt = "; ".join(f"{x['de']} → {x['para']}: {x['quantidade']} saída(s)" for x in saltos) or "nenhuma saída marcada como migração"
+        plano["revisao_necessaria"].append(
+            {
+                "tipo": "info_specs_encadeadas",
+                "detalhe": f"Modelagem encadeada: {specs_txt}. O fluxo começa na primeira SPEC e continua na seguinte nas saídas "
+                f"marcadas como MIGRAÇÃO SPEC (coluna Observações). Saltos encontrados: {saltos_txt}. Estados de mesmo nome em SPECs "
+                "diferentes aparecem com o sufixo da SPEC, ex.: \"PedeID (CRN)\". Saídas para uma SPEC que não foi anexada terminam "
+                "a jornada no estado \"Destino (SPEC X)\".",
             }
         )
     if sem_eep and not modo_completo:
@@ -176,6 +227,7 @@ def gerar_modelagem_testes_completa(spec_bytes, eep_bytes, tipo_a=True, ivr_code
         "versao_spec": spec_model["versionamento"].get("versao"),
         "titulo_ivr_spec": spec_model["versionamento"].get("ivr"),
         "casos_teste_empresas": plano_empresas["casos_teste"] if plano_empresas else None,
+        "specs_encadeadas": spec_model.get("_specs") if encadeado else None,
         # Campos internos, usados apenas por exportar_planilha_para_bytes:
         "_plano": plano,
         "_plano_empresas": plano_empresas,

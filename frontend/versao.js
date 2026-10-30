@@ -3,7 +3,16 @@
    A primeira entrada da lista é a versão atual (aparece ao lado do botão Manual e no Manual). */
 window.MODELER_VERSOES = [
   {
-    numero: '2.47',
+    numero: '2.58',
+    data: '30/10/2026',
+    itens: [
+      'Modelagem ENCADEADA de várias SPECs: o campo da SPEC aceita 2 ou mais arquivos (ex.: URA Identificadora + CRN). O fluxo começa na URAID e continua na CRN nas saídas marcadas como "MIGRAÇÃO SPEC CRN" (coluna Observações); o CT percorre as duas SPECs de ponta a ponta e o step mostra a migração e a SPEC de cada estado. Saídas para uma SPEC não anexada (Móvel, TLV...) terminam a jornada com o aviso.',
+      'Estados alterados em SPECs com o versionamento numa coluna a mais (URA Identificadora) agora são lidos; os títulos de seção do changelog ("ATIVAÇÃO DE CHIP") não viram estado.',
+      'O caminho até um estado passa a evitar ramos de erro/tentativas esgotadas (atalhos) e, quando o contexto de entrada do projeto numa SPEC seguinte cita um estado da anterior (ex.: "aceitaram o chute de ativação de chip na URAID"), o CT passa por esse estado.',
+    ],
+  },
+  {
+    numero: '2.57',
     data: '27/10/2026',
     itens: [
       'Nome do CT mais claro: "Dado cliente ..., Quando <a condição específica que o CT valida>, Então URA deve ir para o estado X (prompt Y) e marcar o ScriptPoint N" — sem emojis e sem o texto genérico "percorrer o caminho de entrada até o estado".',

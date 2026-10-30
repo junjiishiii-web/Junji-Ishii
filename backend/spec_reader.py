@@ -515,10 +515,21 @@ def parse_versionamento(wb, ivr_code=None, aba_candidatas=("_Versionamento_", "V
 
     estados_alterados = []
     for row_bloco in rows_ivr:
+        # Layout: estado na col. C e descricao na D (padrao) ou, em SPECs com uma coluna a mais (ex.: URA
+        # Identificadora: versao A, data C, estado D, descricao E), uma coluna a direita. Decide pelos dados.
+        padrao_c = alt_d = 0
+        for linha_amostra in linhas[row_bloco: row_bloco + 12]:
+            if str(linha_amostra[2] or "").strip() and str(linha_amostra[3] or "").strip():
+                padrao_c += 1
+            elif not str(linha_amostra[2] or "").strip() and str(linha_amostra[3] or "").strip() and str(linha_amostra[4] or "").strip():
+                alt_d += 1
+        col_estado = 3 if alt_d > padrao_c else 2
         for idx in range(row_bloco, len(linhas)):
             linha = linhas[idx]
-            estado_nome = str(linha[2] or "").strip()
-            alteracao_desc = str(linha[3] or "").strip()
+            estado_nome = str(linha[col_estado] or "").strip()
+            alteracao_desc = str(linha[col_estado + 1] or "").strip()
+            if estado_nome and not alteracao_desc and estado_nome.isupper() and " " in estado_nome:
+                continue  # titulo de secao do changelog ("ATIVAÇÃO DE CHIP"), nao e um estado
             if not estado_nome or estado_nome.lower() == "none":
                 if not alteracao_desc:
                     break

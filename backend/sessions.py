@@ -22,6 +22,7 @@ class SessaoDados:
     def __init__(self):
         self.spec_bytes = None
         self.spec_empresas_bytes = None
+        self.specs_encadeadas = []  # [(bytes, nome)] SPECs que continuam o fluxo da principal (ex.: URAID -> CRN)
         self.eep_bytes = None
         self.nome_spec = ""
         self.nome_eep = ""

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modeler Assistant</title>
   <link rel="stylesheet" href="style.css?v=2.56" />
-  <script src="versao.js?v=2.56"></script>
+  <script src="versao.js?v=2.58"></script>
   <script src="automacao.js?v=2.56"></script>
   <script src="conferencia.js?v=2.56"></script>
   <script src="execucao.js?v=2.56"></script>
@@ -41,7 +41,7 @@
     <!-- SPEC -->
     <div class="upload-section">
       <p class="upload-label">Arraste o(s) arquivo(s) da SPEC aqui</p>
-      <p class="upload-hint">1 arquivo (SPEC única) ou 2 arquivos (SPEC MERGE + ClaroEmpresas)</p>
+      <p class="upload-hint">1 arquivo (SPEC única) ou mais de 1 (SPECs encadeadas, ex.: URA Identificadora + CRN — o fluxo começa numa e continua na outra; nome com "Empresas" = SPEC ClaroEmpresas)</p>
       <div class="upload-controls">
         <input type="file" id="specFile" accept=".xlsx" multiple style="display:none;" />
         <button class="btn-upload" onclick="document.getElementById('specFile').click()">Procurar arquivo(s)</button>
@@ -324,6 +324,7 @@
           <h3>Arquivos de entrada</h3>
           <ul>
             <li><strong>SPEC</strong>: planilha .xlsx com as abas dos estados da URA e as abas <code>_Versionamento_</code> e <code>_VersionamentoBI_</code>. O bloco do projeto nessas abas (e a cor da marcação) define o que mudou na versão.</li>
+            <li><strong>Mais de uma SPEC (encadeadas)</strong>: selecione 2 ou mais arquivos no mesmo campo, por exemplo a <strong>URA Identificadora</strong> e a <strong>CRN</strong>. O fluxo começa na URAID e, nas saídas marcadas como <code>MIGRAÇÃO SPEC CRN</code> (coluna Observações), continua na CRN — o CT percorre as duas SPECs de ponta a ponta. A SPEC da URAID é sempre a primeira, independente da ordem em que você selecionou. Estados com o mesmo nome nas duas SPECs aparecem com o sufixo da SPEC (ex.: <code>PedeID (CRN)</code>); saídas para uma SPEC que não foi anexada (ex.: Móvel, TLV) terminam a jornada em <code>Destino (SPEC X)</code>. Um arquivo com "Empresas" no nome continua sendo tratado como a SPEC ClaroEmpresas (aba paralela).</li>
             <li><strong>EEP</strong>: documento de escopo (PDF, xlsx ou docx). Dele saem o nome do projeto, as chaves sistêmicas e os VDNs de transferência.</li>
             <li><strong>Alteração de SPEC</strong> × <strong>Transferência Pura</strong>: escolha o tipo que descreve o projeto; ele muda a forma de montar os CTs.</li>
           </ul>
@@ -490,6 +491,7 @@
   let specLoaded  = false;
   let scopeLoaded = false;
   let specEmpresasLoaded = false;
+  const CHAVES_SPEC_ENC = ['arq_spec_enc_0', 'arq_spec_enc_1', 'arq_spec_enc_2', 'arq_spec_enc_3'];
   let cacheModelagem = null;
   let avaliacoesQA   = {};
 
@@ -543,12 +545,22 @@
     return res;
   }
 
-  /* ─── upload SPEC (1 arquivo = única, 2 arquivos = MERGE + ClaroEmpresas) */
+  /* ─── upload SPEC: 1 arquivo = SPEC única; 2+ = SPECs ENCADEADAS (ex.: URA Identificadora -> CRN: o fluxo
+         começa numa e continua na outra). Arquivo com "Empresas" no nome = SPEC ClaroEmpresas (aba paralela). */
+  const MAX_SPECS = 5;
   document.getElementById('specFile').addEventListener('change', async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    if (files.length > 2) {
-      alert("Selecione no máximo 2 arquivos de SPEC (MERGE + ClaroEmpresas).");
+    if (files.length > MAX_SPECS) {
+      alert(`Selecione no máximo ${MAX_SPECS} arquivos de SPEC.`);
+      e.target.value = '';
+      return;
+    }
+    const ehEmpresas = (f) => /empresas/i.test(f.name);
+    const emp = files.filter(ehEmpresas)[0] || null;
+    const fluxo = files.filter(f => !ehEmpresas(f));
+    if (!fluxo.length) {
+      alert('Selecione ao menos uma SPEC do fluxo (além da SPEC ClaroEmpresas).');
       e.target.value = '';
       return;
     }
@@ -560,38 +572,52 @@
     // verdade, e cai no alerta de "carregue os arquivos" porque specLoaded
     // ainda esta false naquele instante.
     const label = document.getElementById('specNameLabel');
-    label.textContent = files.length === 2
-      ? `Enviando ${files[0].name} + ${files[1].name}…`
-      : `Enviando ${files[0].name}…`;
+    label.textContent = `Enviando ${files.map(f => f.name).join(' + ')}…`;
     label.style.display = 'block';
 
     try {
       const formData1 = new FormData();
-      formData1.append('file', files[0]);
+      formData1.append('file', fluxo[0]);
       await _enviarArquivo(`${API}/api/upload-spec`, formData1);
       specLoaded = true;
       servidorPrecisaReenvio = false;
-      guardarEntrada('arq_spec', files[0]);
+      guardarEntrada('arq_spec', fluxo[0]);
 
-      if (files[1]) {
+      for (let i = 0; i < MAX_SPECS - 1; i++) {
+        if (fluxo[i + 1]) {
+          const fd = new FormData();
+          fd.append('file', fluxo[i + 1]);
+          await _enviarArquivo(`${API}/api/upload-spec-encadeada`, fd);
+          guardarEntrada('arq_spec_enc_' + i, fluxo[i + 1]);
+        } else {
+          apagarEntrada('arq_spec_enc_' + i);
+        }
+      }
+
+      if (emp) {
         const formData2 = new FormData();
-        formData2.append('file', files[1]);
+        formData2.append('file', emp);
         await _enviarArquivo(`${API}/api/upload-spec-empresas`, formData2);
         specEmpresasLoaded = true;
-        guardarEntrada('arq_spec_emp', files[1]);
+        guardarEntrada('arq_spec_emp', emp);
       } else {
         specEmpresasLoaded = false;
         apagarEntrada('arq_spec_emp');
       }
-      label.textContent = files.length === 2
-        ? `✓ ${files[0].name}  +  ✓ ${files[1].name} (ClaroEmpresas)`
-        : `✓ ${files[0].name}`;
+      label.textContent = rotuloSpecs(fluxo.map(f => f.name), emp && emp.name);
     } catch(err) {
       specLoaded = false;
       label.style.display = 'none';
       alert("Erro ao subir a(s) SPEC(s): " + (err && err.message ? err.message : err));
     }
   });
+
+  function rotuloSpecs(nomesFluxo, nomeEmpresas) {
+    let txt = nomesFluxo.map(n => `✓ ${n}`).join('  →  ');
+    if (nomesFluxo.length > 1) txt += '  (SPECs encadeadas: o fluxo começa na SPEC da URA Identificadora e continua na(s) seguinte(s))';
+    if (nomeEmpresas) txt += `  +  ✓ ${nomeEmpresas} (ClaroEmpresas)`;
+    return txt;
+  }
 
   /* ─── upload EEP ───────────────────────────────────────── */
   document.getElementById('scopeFile').addEventListener('change', async (e) => {
@@ -766,7 +792,7 @@
     }
     await limparTrabalhoSalvo();
     // Tela inicial totalmente em branco: sem arquivos carregados nem codigo IVR.
-    await Promise.all(['arq_spec', 'arq_spec_emp', 'arq_eep'].map(apagarEntrada));
+    await Promise.all(['arq_spec', 'arq_spec_emp', 'arq_eep', ...CHAVES_SPEC_ENC].map(apagarEntrada));
     specLoaded = false;
     specEmpresasLoaded = false;
     scopeLoaded = false;
@@ -1087,6 +1113,10 @@
         await _enviarArquivo(`${API}${rota}`, fd);
       };
       await enviar('/api/upload-spec', spec);
+      for (const chave of CHAVES_SPEC_ENC) {
+        const enc = await dbGet('estado', chave);
+        if (enc) await enviar('/api/upload-spec-encadeada', enc);
+      }
       if (emp) await enviar('/api/upload-spec-empresas', emp);
       if (eep) await enviar('/api/upload-eep', eep);
       servidorPrecisaReenvio = false;
@@ -1139,7 +1169,7 @@
       if (!res) {
         // Sem modelagem salva nao ha trabalho a retomar: descarta copias antigas
         // de SPEC/EEP para a tela inicial ficar em branco.
-        await Promise.all(['arq_spec', 'arq_spec_emp', 'arq_eep'].map(apagarEntrada));
+        await Promise.all(['arq_spec', 'arq_spec_emp', 'arq_eep', ...CHAVES_SPEC_ENC].map(apagarEntrada));
         return;
       }
 
@@ -1151,7 +1181,9 @@
         specLoaded = true;
         specEmpresasLoaded = !!emp;
         const lbl = document.getElementById('specNameLabel');
-        lbl.textContent = emp ? `✓ ${spec.nome}  +  ✓ ${emp.nome} (ClaroEmpresas)` : `✓ ${spec.nome}`;
+        const encs = [];
+        for (const chave of CHAVES_SPEC_ENC) { const enc = await dbGet('estado', chave); if (enc) encs.push(enc.nome); }
+        lbl.textContent = rotuloSpecs([spec.nome, ...encs], emp && emp.nome);
         lbl.style.display = 'block';
         servidorPrecisaReenvio = true;
       }
@@ -1687,13 +1719,16 @@
       const corHeader = caso.regressivo ? CORES_REGRESSIVO : CORES_BLOCO[(caso.bloco - 1) % CORES_BLOCO.length];
       const pendenteTag = caso.sp_pendente ? `<span class="badge-pendente" style="margin-left:8px;">SP PENDENTE</span>` : '';
       let stepsRowsHtml = "";
+      let specAnterior = null;
       caso.steps.forEach(step => {
+        const mostrarSpec = step.spec && step.spec !== specAnterior;
+        if (step.spec) specAnterior = step.spec;
         const resultado = step.resultado !== undefined ? step.resultado : step.prompt_texto;
         stepsRowsHtml += `
           <tr>
             <td>${step.step_num}</td>
             <td><strong>${escHtml(step.acao)}</strong></td>
-            <td><span class="step-state">${escHtml(step.estado)}</span></td>
+            <td><span class="step-state">${escHtml(step.estado)}</span>${mostrarSpec ? ` <span class="spec-badge">${escHtml(step.spec)}</span>` : ''}</td>
             <td>
               ${step.prompt_id && step.prompt_id !== '—' ? `<div class="step-prompt-id" style="font-family: monospace; font-size: 11px; font-weight: 700; color: var(--clr-navy); margin-bottom: 4px;">ID: ${escHtml(step.prompt_id)}</div>` : ''}
               <div class="step-prompt-text" style="font-style: italic; color: #444; line-height: 1.4; white-space: pre-line;">${escHtml(resultado)}</div>
@@ -1739,7 +1774,7 @@
         : '';
       return `
         <div class="block-header" style="background:${corHeader};">
-          ${escHtml(caso.bloco_nome)} — Estado Mapeado: ${escHtml(caso.estado)}
+          ${escHtml(caso.bloco_nome)} — Estado Mapeado: ${escHtml(caso.estado)}${caso.spec ? ' · SPEC ' + escHtml(caso.spec) : ''}
         </div>
         <div class="pre-requisito-row">
           <strong>PRÉ-REQUISITO:</strong> ${escHtml(caso.pre_requisito)}

@@ -241,7 +241,21 @@ async def upload_spec(request: Request, response: Response, file: UploadFile = F
     conteudo = _validar_xlsx_basico(conteudo, file.filename, "SPEC")
     sessao.spec_bytes = conteudo
     sessao.nome_spec = file.filename
+    sessao.specs_encadeadas = []  # o envio da SPEC principal recomeca a lista de SPECs encadeadas
     return {"status": "success", "arquivo": file.filename}
+
+
+@app.post("/api/upload-spec-encadeada")
+async def upload_spec_encadeada(request: Request, response: Response, file: UploadFile = File(...)):
+    """SPEC adicional do MESMO projeto: o fluxo comeca na principal (ex.: URA Identificadora) e continua nesta (ex.: CRN)."""
+    sessao, sid, novo = _sessao_de(request)
+    _aplicar_cookie_se_novo(response, sid, novo)
+    conteudo = await file.read()
+    conteudo = _validar_xlsx_basico(conteudo, file.filename, "SPEC encadeada")
+    if len(sessao.specs_encadeadas) >= 4:
+        raise HTTPException(status_code=400, detail="No máximo 5 SPECs encadeadas (1 principal + 4).")
+    sessao.specs_encadeadas.append((conteudo, file.filename))
+    return {"status": "success", "arquivo": file.filename, "total": len(sessao.specs_encadeadas) + 1}
 
 
 @app.post("/api/upload-spec-empresas")
@@ -284,6 +298,8 @@ def _gerar(sessao: sessions.SessaoDados, tipo_a: bool, ivr_code: str = ""):
             ivr_code=ivr_code or None,
             eep_filename=sessao.nome_eep,
             spec_bytes_empresas=sessao.spec_empresas_bytes,
+            spec_filename=sessao.nome_spec,
+            specs_encadeadas_lista=list(sessao.specs_encadeadas),
         )
     except Exception as e:
         _log_erro("Erro em gerar_modelagem_testes_completa", e)
@@ -317,6 +333,8 @@ def _rodar_modelagem_em_thread(sessao: sessions.SessaoDados, tipo_a, ivr_code, s
             eep_filename="" if sem_eep else sessao.nome_eep,
             spec_bytes_empresas=sessao.spec_empresas_bytes,
             progress_callback=callback,
+            spec_filename=sessao.nome_spec,
+            specs_encadeadas_lista=list(sessao.specs_encadeadas),
         )
         sessao.resultado = dados
         sessao.atualizar_progresso(percentual=100, etapa="Concluído.", concluido=True)
